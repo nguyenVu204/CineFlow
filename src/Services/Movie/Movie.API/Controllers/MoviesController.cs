@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Movie.API.Dtos;
 using Movie.API.Data;
 using MovieStatus = Movie.API.Models.MovieStatus;
 using MovieEntity = Movie.API.Models.Movie;
@@ -18,13 +19,23 @@ public class MoviesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<MovieEntity>>> GetMovies(
+    public async Task<ActionResult<PagedMoviesResponse>> GetMovies(
         [FromQuery] string? search,
         [FromQuery] string? genre,
         [FromQuery] MovieStatus? status,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
+        if (page < 1 || pageSize is < 1 or > 100)
+        {
+            return BadRequest(new { message = "Page must be at least 1 and pageSize must be between 1 and 100." });
+        }
+
+        if (status.HasValue && !Enum.IsDefined(status.Value))
+        {
+            return BadRequest(new { message = "Status is invalid." });
+        }
+
         var query = _context.Movies.AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -49,7 +60,7 @@ public class MoviesController : ControllerBase
             .Take(pageSize)
             .ToListAsync();
 
-        return Ok(new { total, page, pageSize, items });
+        return Ok(new PagedMoviesResponse(total, page, pageSize, items));
     }
 
     [HttpGet("{id:int}")]
@@ -65,34 +76,51 @@ public class MoviesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<MovieEntity>> CreateMovie([FromBody] MovieEntity movie)
+    public async Task<ActionResult<MovieEntity>> CreateMovie([FromBody] MovieRequest request)
     {
-        if (string.IsNullOrWhiteSpace(movie.Title))
+        var validationError = ValidateMovie(request);
+        if (validationError is not null)
         {
-            return BadRequest("Title is required.");
+            return BadRequest(new { message = validationError });
         }
 
-        movie.CreatedAt = DateTime.UtcNow;
+        var movie = new MovieEntity
+        {
+            Title = request.Title.Trim(),
+            Description = request.Description.Trim(),
+            DurationMinutes = request.DurationMinutes,
+            ReleaseDate = request.ReleaseDate,
+            PosterUrl = request.PosterUrl?.Trim() ?? string.Empty,
+            Genre = request.Genre.Trim(),
+            Status = request.Status,
+            CreatedAt = DateTime.UtcNow
+        };
         _context.Movies.Add(movie);
         await _context.SaveChangesAsync();
         return CreatedAtAction(nameof(GetMovie), new { id = movie.Id }, movie);
     }
 
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> UpdateMovie(int id, [FromBody] MovieEntity request)
+    public async Task<IActionResult> UpdateMovie(int id, [FromBody] MovieRequest request)
     {
+        var validationError = ValidateMovie(request);
+        if (validationError is not null)
+        {
+            return BadRequest(new { message = validationError });
+        }
+
         var movie = await _context.Movies.FindAsync(id);
         if (movie is null)
         {
             return NotFound();
         }
 
-        movie.Title = request.Title;
-        movie.Description = request.Description;
+        movie.Title = request.Title.Trim();
+        movie.Description = request.Description.Trim();
         movie.DurationMinutes = request.DurationMinutes;
         movie.ReleaseDate = request.ReleaseDate;
-        movie.PosterUrl = request.PosterUrl;
-        movie.Genre = request.Genre;
+        movie.PosterUrl = request.PosterUrl?.Trim() ?? string.Empty;
+        movie.Genre = request.Genre.Trim();
         movie.Status = request.Status;
 
         await _context.SaveChangesAsync();
@@ -111,5 +139,40 @@ public class MoviesController : ControllerBase
         _context.Movies.Remove(movie);
         await _context.SaveChangesAsync();
         return NoContent();
+    }
+
+    private static string? ValidateMovie(MovieRequest movie)
+    {
+        if (string.IsNullOrWhiteSpace(movie.Title) || movie.Title.Trim().Length > 200)
+        {
+            return "Title is required and must not exceed 200 characters.";
+        }
+
+        if (movie.Description is null || movie.Description.Length > 2000)
+        {
+            return "Description must not exceed 2000 characters.";
+        }
+
+        if (movie.DurationMinutes <= 0)
+        {
+            return "DurationMinutes must be greater than zero.";
+        }
+
+        if (movie.PosterUrl?.Length > 500)
+        {
+            return "PosterUrl must not exceed 500 characters.";
+        }
+
+        if (string.IsNullOrWhiteSpace(movie.Genre) || movie.Genre.Trim().Length > 100)
+        {
+            return "Genre is required and must not exceed 100 characters.";
+        }
+
+        if (!Enum.IsDefined(movie.Status))
+        {
+            return "Status is invalid.";
+        }
+
+        return null;
     }
 }

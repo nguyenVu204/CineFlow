@@ -11,7 +11,7 @@ public static class SeatBookingValidator
 
     public static bool HasExpired(DateTime? holdExpiresAt)
     {
-        return holdExpiresAt.HasValue && holdExpiresAt.Value < DateTime.UtcNow;
+        return holdExpiresAt.HasValue && holdExpiresAt.Value <= DateTime.UtcNow;
     }
 
     public static string GenerateBookingCode()

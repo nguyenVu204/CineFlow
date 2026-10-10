@@ -1,5 +1,8 @@
 using Cinema.API.Data;
+using Cinema.API.Dtos;
+using System.Data;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using CinemaEntity = Cinema.API.Models.Cinema;
 using ScreenEntity = Cinema.API.Models.Screen;
@@ -49,16 +52,36 @@ public class CinemasController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<CinemaEntity>> CreateCinema([FromBody] CinemaEntity cinema)
+    public async Task<ActionResult<CinemaEntity>> CreateCinema([FromBody] CinemaRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200 ||
+            string.IsNullOrWhiteSpace(request.Address) || request.Address.Trim().Length > 500 ||
+            request.Description is null || request.Description.Length > 1000)
+        {
+            return BadRequest(new { message = "Name, address, or description is invalid." });
+        }
+
+        var cinema = new CinemaEntity
+        {
+            Name = request.Name.Trim(),
+            Address = request.Address.Trim(),
+            Description = request.Description.Trim()
+        };
         _context.Cinemas.Add(cinema);
         await _context.SaveChangesAsync();
         return CreatedAtAction(nameof(GetCinema), new { id = cinema.Id }, cinema);
     }
 
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> UpdateCinema(int id, [FromBody] CinemaEntity request)
+    public async Task<IActionResult> UpdateCinema(int id, [FromBody] CinemaRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200 ||
+            string.IsNullOrWhiteSpace(request.Address) || request.Address.Trim().Length > 500 ||
+            request.Description is null || request.Description.Length > 1000)
+        {
+            return BadRequest(new { message = "Name, address, or description is invalid." });
+        }
+
         var cinema = await _context.Cinemas.FindAsync(id);
         if (cinema is null)
         {
@@ -99,9 +122,88 @@ public class ScreensController : ControllerBase
         _context = context;
     }
 
+    [HttpGet("{screenId:int}")]
+    public async Task<ActionResult<ScreenEntity>> GetScreen(int screenId)
+    {
+        var screen = await _context.Screens
+            .Include(x => x.Seats)
+            .FirstOrDefaultAsync(x => x.Id == screenId);
+
+        return screen is null ? NotFound() : Ok(screen);
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<ScreenEntity>> CreateScreen([FromBody] ScreenRequest request)
+    {
+        if (request.CinemaId <= 0 || string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 100)
+        {
+            return BadRequest(new { message = "CinemaId and a screen name of at most 100 characters are required." });
+        }
+
+        if (!await _context.Cinemas.AnyAsync(x => x.Id == request.CinemaId))
+        {
+            return BadRequest(new { message = "Cinema does not exist." });
+        }
+
+        var screen = new ScreenEntity
+        {
+            CinemaId = request.CinemaId,
+            Name = request.Name.Trim()
+        };
+        _context.Screens.Add(screen);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            return Conflict(new { message = "A screen with this name already exists in the cinema." });
+        }
+
+        return CreatedAtAction(nameof(GetScreen), new { screenId = screen.Id }, screen);
+    }
+
+    [HttpPut("{screenId:int}")]
+    public async Task<IActionResult> UpdateScreen(int screenId, [FromBody] ScreenRequest request)
+    {
+        if (request.CinemaId <= 0 || string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 100)
+        {
+            return BadRequest(new { message = "CinemaId and a screen name of at most 100 characters are required." });
+        }
+
+        var screen = await _context.Screens.FindAsync(screenId);
+        if (screen is null)
+        {
+            return NotFound();
+        }
+
+        if (!await _context.Cinemas.AnyAsync(x => x.Id == request.CinemaId))
+        {
+            return BadRequest(new { message = "Cinema does not exist." });
+        }
+
+        screen.CinemaId = request.CinemaId;
+        screen.Name = request.Name.Trim();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            return Conflict(new { message = "A screen with this name already exists in the cinema." });
+        }
+
+        return NoContent();
+    }
+
     [HttpGet("{screenId:int}/seats")]
     public async Task<ActionResult<IEnumerable<SeatEntity>>> GetSeats(int screenId)
     {
+        if (!await _context.Screens.AnyAsync(x => x.Id == screenId))
+        {
+            return NotFound();
+        }
+
         var seats = await _context.Seats
             .Where(x => x.ScreenId == screenId)
             .OrderBy(x => x.Row)
@@ -111,12 +213,58 @@ public class ScreensController : ControllerBase
         return Ok(seats);
     }
 
-    [HttpPost]
-    public async Task<ActionResult<SeatEntity>> CreateSeat([FromBody] SeatEntity seat)
+    [HttpPost("{screenId:int}/seats")]
+    public async Task<ActionResult<SeatEntity>> CreateSeat(int screenId, [FromBody] SeatRequest request)
     {
+        return await CreateSeatForScreen(screenId, request);
+    }
+
+    [HttpPost("/api/seats")]
+    public async Task<ActionResult<SeatEntity>> CreateSeat([FromBody] SeatRequest request)
+    {
+        return await CreateSeatForScreen(request.ScreenId, request);
+    }
+
+    private async Task<ActionResult<SeatEntity>> CreateSeatForScreen(int screenId, SeatRequest request)
+    {
+        if (screenId <= 0 ||
+            string.IsNullOrWhiteSpace(request.Row) || request.Row.Trim().Length > 10 ||
+            string.IsNullOrWhiteSpace(request.Column) || request.Column.Trim().Length > 10 ||
+            string.IsNullOrWhiteSpace(request.SeatNumber) || request.SeatNumber.Trim().Length > 20 ||
+            !Enum.IsDefined(request.SeatType))
+        {
+            return BadRequest(new { message = "Seat details are invalid." });
+        }
+
+        if (!await _context.Screens.AnyAsync(x => x.Id == screenId))
+        {
+            return BadRequest(new { message = "Screen does not exist." });
+        }
+
+        var seat = new SeatEntity
+        {
+            ScreenId = screenId,
+            Row = request.Row.Trim(),
+            Column = request.Column.Trim(),
+            SeatNumber = request.SeatNumber.Trim(),
+            SeatType = request.SeatType
+        };
         _context.Seats.Add(seat);
-        await _context.SaveChangesAsync();
-        return Created($"/api/screens/{seat.ScreenId}/seats/{seat.Id}", seat);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            return Conflict(new { message = "Seat number already exists in this screen." });
+        }
+
+        return Created($"/api/screens/{seat.ScreenId}/seats", seat);
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        return exception.GetBaseException() is SqlException { Number: 2601 or 2627 };
     }
 }
 
@@ -125,15 +273,27 @@ public class ScreensController : ControllerBase
 public class ShowtimesController : ControllerBase
 {
     private readonly CinemaDbContext _context;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<ShowtimesController> _logger;
 
-    public ShowtimesController(CinemaDbContext context)
+    public ShowtimesController(
+        CinemaDbContext context,
+        IHttpClientFactory httpClientFactory,
+        ILogger<ShowtimesController> logger)
     {
         _context = context;
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ShowtimeEntity>>> GetShowtimes([FromQuery] int? movieId, [FromQuery] int? screenId)
     {
+        if (movieId <= 0 || screenId <= 0)
+        {
+            return BadRequest(new { message = "MovieId and ScreenId must be greater than zero when provided." });
+        }
+
         var query = _context.Showtimes.AsQueryable();
 
         if (movieId.HasValue)
@@ -163,26 +323,95 @@ public class ShowtimesController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<ShowtimeEntity>> CreateShowtime([FromBody] ShowtimeEntity showtime)
+    public async Task<ActionResult<ShowtimeEntity>> CreateShowtime(
+        [FromBody] ShowtimeRequest request,
+        CancellationToken cancellationToken)
     {
-        var overlaps = await _context.Showtimes.AnyAsync(x =>
-            x.ScreenId == showtime.ScreenId &&
-            x.Status != ShowtimeStatus.Cancelled &&
-            x.StartTime < showtime.EndTime &&
-            showtime.StartTime < x.EndTime);
+        if (!IsValidShowtime(request))
+        {
+            return BadRequest(new { message = "Showtime details are invalid." });
+        }
+
+        var screen = await _context.Screens
+            .Include(x => x.Seats)
+            .FirstOrDefaultAsync(x => x.Id == request.ScreenId, cancellationToken);
+        if (screen is null)
+        {
+            return BadRequest(new { message = "Screen does not exist." });
+        }
+
+        if (screen.Seats.Count == 0)
+        {
+            return BadRequest(new { message = "Screen must contain seats before creating a showtime." });
+        }
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+        var overlaps = request.Status != ShowtimeStatus.Cancelled &&
+            await _context.Showtimes.AnyAsync(x =>
+                x.ScreenId == request.ScreenId &&
+                x.Status != ShowtimeStatus.Cancelled &&
+                x.StartTime < request.EndTime &&
+                request.StartTime < x.EndTime,
+                cancellationToken);
 
         if (overlaps)
         {
             return Conflict(new { message = "Showtime overlaps with existing showtime in the same screen." });
         }
 
+        var showtime = new ShowtimeEntity
+        {
+            MovieId = request.MovieId,
+            ScreenId = request.ScreenId,
+            StartTime = request.StartTime,
+            EndTime = request.EndTime,
+            BasePrice = request.BasePrice,
+            Status = request.Status
+        };
         _context.Showtimes.Add(showtime);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var bookingClient = _httpClientFactory.CreateClient("BookingService");
+        try
+        {
+            using var response = await bookingClient.PostAsJsonAsync(
+                $"/api/bookings/showtimes/{showtime.Id}/seats",
+                new InitializeBookingSeatsRequest(
+                    screen.Seats.Select(x => x.Id).ToList(),
+                    showtime.BasePrice),
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError(
+                    "Booking Service returned {StatusCode} while initializing seats for showtime {ShowtimeId}.",
+                    (int)response.StatusCode,
+                    showtime.Id);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    message = "Showtime was created, but seat initialization failed. Retry seat initialization through Booking Service.",
+                    showtimeId = showtime.Id
+                });
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            _logger.LogError(exception, "Could not initialize seats for showtime {ShowtimeId}.", showtime.Id);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message = "Showtime was created, but Booking Service could not be reached. Retry seat initialization.",
+                showtimeId = showtime.Id
+            });
+        }
+
         return CreatedAtAction(nameof(GetShowtime), new { id = showtime.Id }, showtime);
     }
 
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> UpdateShowtime(int id, [FromBody] ShowtimeEntity request)
+    public async Task<IActionResult> UpdateShowtime(int id, [FromBody] ShowtimeRequest request)
     {
         var showtime = await _context.Showtimes.FindAsync(id);
         if (showtime is null)
@@ -190,7 +419,19 @@ public class ShowtimesController : ControllerBase
             return NotFound();
         }
 
+        if (!IsValidShowtime(request))
+        {
+            return BadRequest(new { message = "Showtime details are invalid." });
+        }
+
+        if (!await _context.Screens.AnyAsync(x => x.Id == request.ScreenId))
+        {
+            return BadRequest(new { message = "Screen does not exist." });
+        }
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var overlaps = await _context.Showtimes.AnyAsync(x =>
+            request.Status != ShowtimeStatus.Cancelled &&
             x.Id != id &&
             x.ScreenId == request.ScreenId &&
             x.Status != ShowtimeStatus.Cancelled &&
@@ -210,6 +451,16 @@ public class ShowtimesController : ControllerBase
         showtime.Status = request.Status;
 
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
         return NoContent();
+    }
+
+    private static bool IsValidShowtime(ShowtimeRequest showtime)
+    {
+        return showtime.MovieId > 0 &&
+               showtime.ScreenId > 0 &&
+               showtime.EndTime > showtime.StartTime &&
+               showtime.BasePrice >= 0 &&
+               Enum.IsDefined(showtime.Status);
     }
 }

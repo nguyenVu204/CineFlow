@@ -33,7 +33,7 @@ React Frontend -> API Gateway -> Movie / Cinema / Booking Services
 
 - Browse movies with search and filtering
 - View cinemas and screens
-- Create and view showtimes
+- Create and view showtimes; Cinema Service provisions the matching Booking seat rows
 - Hold seats with 5-minute expiry
 - Confirm booking with idempotency key support
 - Cancel booking and release seats
@@ -66,11 +66,15 @@ dotnet restore CinemaBooking.sln
 
 ### 2. Start infrastructure from Docker Compose
 
-For a full Docker-based demo, start SQL Server, Redis, and RabbitMQ with:
+Create a local environment file and set a strong SQL Server password before starting the containers:
 
 ```bash
+cp .env.example .env
+# Edit .env and replace the SQL Server password placeholder.
 docker compose up -d
 ```
+
+Do not commit `.env`. Compose requires `SQL_SA_PASSWORD` and reads it for both SQL Server and the service connection strings. If port 1433 is already used by a local SQL Server, set `SQLSERVER_PORT=1434` in `.env`; containers continue to communicate with `sqlserver:1433` internally.
 
 The Compose services use SQL authentication and the `sqlserver` container hostname. For running the APIs directly on Windows with a local SQL Server instance, the appsettings files instead use Windows Authentication:
 
@@ -147,21 +151,39 @@ Cinema service:
 - GET /api/cinemas
 - GET /api/cinemas/{id}
 - POST /api/cinemas
+- PUT /api/cinemas/{id}
+- DELETE /api/cinemas/{id}
+- GET /api/screens/{id}
+- POST /api/screens
+- PUT /api/screens/{id}
+- GET /api/screens/{screenId}/seats
+- POST /api/seats
 - GET /api/showtimes
+- GET /api/showtimes/{id}
 - POST /api/showtimes
+- PUT /api/showtimes/{id}
 
 Booking service:
 
+- GET /api/bookings/showtimes/{showtimeId}/seats
 - POST /api/bookings/hold
+- GET /api/bookings/{id}
+- GET /api/bookings/my-bookings?userId={userId}
 - POST /api/bookings/{id}/confirm
 - POST /api/bookings/{id}/cancel
-- GET /api/bookings/my-bookings
+
+Confirmation accepts an optional `Idempotency-Key` header. Repeating the same key for the same booking returns the original JSON response; reusing it for a different booking returns `409 Conflict`.
+
+Booking state changes and outbox records are committed in the same SQL transaction. The outbox worker publishes durable `BookingConfirmed` and `SeatReleased` messages to RabbitMQ. Seat holds use short-lived Redis locks and SQL Server `rowversion`; the hold itself expires after five minutes.
+
+Creating a showtime through Cinema Service sends that screen's seat IDs to Booking Service. Seat provisioning is idempotent; if Booking Service is unavailable, the showtime remains created and the API returns `503` with its ID so seat provisioning can be retried.
 
 ## Important notes
 
 - This is an educational project, not a production-grade distributed system.
 - Each service owns its own SQL database.
 - The project intentionally keeps the design simple to remain easy to understand and demo.
+- Booking currently identifies customers by the `UserId` supplied by the caller. JWT authentication and role-based authorization remain future work.
 
 ## Future improvements
 

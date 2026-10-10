@@ -25,10 +25,24 @@ public class RabbitMqPublisher : IRabbitMqPublisher, IAsyncDisposable
         await EnsureConnectedAsync(cancellationToken);
 
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
+        await _channel!.QueueDeclareAsync(
+            queue: eventName,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null,
+            cancellationToken: cancellationToken);
+        var properties = new BasicProperties
+        {
+            Persistent = true,
+            ContentType = "application/json"
+        };
+
         await _channel!.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: eventName,
             mandatory: false,
+            basicProperties: properties,
             body: body,
             cancellationToken: cancellationToken);
     }

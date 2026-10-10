@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddProblemDetails();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Server=.;Database=BookingDb;Trusted_Connection=True;TrustServerCertificate=True;";
@@ -25,6 +26,7 @@ builder.Services.AddHostedService<SeatReleaseBackgroundService>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
 
 var app = builder.Build();
+app.UseExceptionHandler();
 
 using (var scope = app.Services.CreateScope())
 {
@@ -42,4 +44,3 @@ app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "Book
 app.MapControllers();
 
 app.Run();
-

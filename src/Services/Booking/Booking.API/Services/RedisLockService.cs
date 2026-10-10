@@ -4,9 +4,9 @@ namespace Booking.API.Services;
 
 public sealed class RedisLockService
 {
-    private readonly ConnectionMultiplexer _redis;
+    private readonly IConnectionMultiplexer _redis;
 
-    public RedisLockService(ConnectionMultiplexer redis)
+    public RedisLockService(IConnectionMultiplexer redis)
     {
         _redis = redis;
     }
@@ -21,11 +21,11 @@ public sealed class RedisLockService
 
 public sealed class RedisLockHandle : IAsyncDisposable
 {
-    private readonly ConnectionMultiplexer _redis;
+    private readonly IConnectionMultiplexer _redis;
     private readonly string _key;
     private readonly string _token;
 
-    public RedisLockHandle(ConnectionMultiplexer redis, string key, string token)
+    public RedisLockHandle(IConnectionMultiplexer redis, string key, string token)
     {
         _redis = redis;
         _key = key;
