@@ -12,7 +12,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient("BookingService", client =>
 {
-    var address = builder.Configuration["BookingService:BaseUrl"] ?? "http://localhost:5003/";
+    var address = builder.Configuration["BookingService:BaseUrl"] ?? "http://localhost:5103/";
     client.BaseAddress = new Uri(address);
 });
 

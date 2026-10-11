@@ -17,7 +17,7 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<BookingDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-var redisConnection = builder.Configuration["Redis:Configuration"] ?? "localhost:6379";
+var redisConnection = builder.Configuration["Redis:Configuration"] ?? "localhost:16379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
 builder.Services.AddSingleton<RedisLockService>();
 

@@ -57,6 +57,7 @@ public class RabbitMqPublisher : IRabbitMqPublisher, IAsyncDisposable
         var factory = new ConnectionFactory
         {
             HostName = _configuration["RabbitMQ:HostName"] ?? "localhost",
+            Port = _configuration.GetValue<int?>("RabbitMQ:Port") ?? 5672,
             UserName = _configuration["RabbitMQ:UserName"] ?? "guest",
             Password = _configuration["RabbitMQ:Password"] ?? "guest",
             VirtualHost = _configuration["RabbitMQ:VirtualHost"] ?? "/",
