@@ -14,6 +14,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
+        options.SwaggerEndpoint("/docs/identity/swagger.json", "Identity Service");
         options.SwaggerEndpoint("/docs/movie/swagger.json", "Movie Service");
         options.SwaggerEndpoint("/docs/cinema/swagger.json", "Cinema Service");
         options.SwaggerEndpoint("/docs/booking/swagger.json", "Booking Service");

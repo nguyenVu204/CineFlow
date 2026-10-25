@@ -1,8 +1,13 @@
 using System.Text.Json;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Booking.API.Data;
 using Booking.API.Dtos;
 using Booking.API.Models;
 using Booking.API.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using BookingEntity = Booking.API.Models.Booking;
@@ -11,6 +16,7 @@ using BookingStatus = Booking.API.Models.BookingStatus;
 namespace Booking.API.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/[controller]")]
 public class BookingsController : ControllerBase
 {
@@ -21,23 +27,33 @@ public class BookingsController : ControllerBase
     private readonly BookingDbContext _context;
     private readonly RedisLockService _redisLockService;
     private readonly ILogger<BookingsController> _logger;
+    private readonly IConfiguration _configuration;
 
     public BookingsController(
         BookingDbContext context,
         RedisLockService redisLockService,
-        ILogger<BookingsController> logger)
+        ILogger<BookingsController> logger,
+        IConfiguration configuration)
     {
         _context = context;
         _redisLockService = redisLockService;
         _logger = logger;
+        _configuration = configuration;
     }
 
+    [AllowAnonymous]
     [HttpPost("showtimes/{showtimeId:int}/seats")]
     public async Task<IActionResult> InitializeShowtimeSeats(
         int showtimeId,
         [FromBody] InitializeShowtimeSeatsRequest request,
+        [FromHeader(Name = "X-Internal-Api-Key")] string? internalServiceKey,
         CancellationToken cancellationToken)
     {
+        if (!HasValidInternalServiceKey(internalServiceKey))
+        {
+            return Unauthorized(new { message = "A valid internal service key is required." });
+        }
+
         if (showtimeId <= 0 ||
             request.SeatIds is null ||
             request.SeatIds.Count == 0 ||
@@ -160,7 +176,7 @@ public class BookingsController : ControllerBase
             var booking = new BookingEntity
             {
                 BookingCode = SeatBookingValidator.GenerateBookingCode(),
-                UserId = request.UserId.Trim(),
+                UserId = CurrentUserId(),
                 ShowtimeId = request.ShowtimeId,
                 TotalAmount = seats.Sum(x => x.Price),
                 Status = BookingStatus.Pending,
@@ -218,6 +234,7 @@ public class BookingsController : ControllerBase
         }
     }
 
+    [AllowAnonymous]
     [HttpGet("showtimes/{showtimeId:int}/seats")]
     public async Task<ActionResult<IReadOnlyCollection<SeatAvailabilityResponse>>> GetSeatAvailability(
         int showtimeId,
@@ -257,26 +274,46 @@ public class BookingsController : ControllerBase
             .Include(x => x.Items)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        return booking is null ? NotFound() : Ok(ToBookingDetails(booking));
+        if (booking is null || !IsBookingOwner(booking.UserId))
+        {
+            return NotFound();
+        }
+
+        return Ok(ToBookingDetails(booking));
     }
 
     [HttpGet("my-bookings")]
     public async Task<ActionResult<IReadOnlyCollection<BookingDetailsResponse>>> GetMyBookings(
-        [FromQuery] string userId,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return BadRequest(new { message = "UserId is required." });
-        }
+        var userId = CurrentUserId();
 
         var bookings = await _context.Bookings
             .AsNoTracking()
             .Include(x => x.Items)
-            .Where(x => x.UserId == userId.Trim())
+            .Where(x => x.UserId == userId)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
 
+        return Ok(bookings.Select(ToBookingDetails).ToList());
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyCollection<BookingDetailsResponse>>> GetBookings(
+        [FromQuery] string? userId,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.Bookings.AsNoTracking().Include(x => x.Items).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            query = query.Where(x => x.UserId == userId.Trim());
+        }
+
+        var bookings = await query
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
         return Ok(bookings.Select(ToBookingDetails).ToList());
     }
 
@@ -320,6 +357,11 @@ public class BookingsController : ControllerBase
                 .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
             if (initialBooking is null)
+            {
+                return NotFound();
+            }
+
+            if (!IsBookingOwner(initialBooking.UserId))
             {
                 return NotFound();
             }
@@ -475,6 +517,11 @@ public class BookingsController : ControllerBase
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
         if (initialBooking is null)
+        {
+            return NotFound();
+        }
+
+        if (!IsBookingOwner(initialBooking.UserId))
         {
             return NotFound();
         }
@@ -642,6 +689,31 @@ public class BookingsController : ControllerBase
             }),
             CreatedAt = DateTime.UtcNow
         });
+    }
+
+    private string CurrentUserId()
+    {
+        return User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            ?? throw new InvalidOperationException("The authenticated token does not contain a subject.");
+    }
+
+    private bool IsBookingOwner(string userId)
+    {
+        return User.IsInRole("Admin") || string.Equals(CurrentUserId(), userId, StringComparison.Ordinal);
+    }
+
+    private bool HasValidInternalServiceKey(string? suppliedKey)
+    {
+        var configuredKey = _configuration["InternalService:ApiKey"];
+        if (string.IsNullOrEmpty(configuredKey) || string.IsNullOrEmpty(suppliedKey))
+        {
+            return false;
+        }
+
+        var configuredBytes = Encoding.UTF8.GetBytes(configuredKey);
+        var suppliedBytes = Encoding.UTF8.GetBytes(suppliedKey);
+        return configuredBytes.Length == suppliedBytes.Length &&
+               CryptographicOperations.FixedTimeEquals(configuredBytes, suppliedBytes);
     }
 
     private static void MakeSeatAvailable(ShowtimeSeat seat)

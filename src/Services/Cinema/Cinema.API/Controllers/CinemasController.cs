@@ -2,6 +2,7 @@ using Cinema.API.Data;
 using Cinema.API.Dtos;
 using System.Data;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using CinemaEntity = Cinema.API.Models.Cinema;
@@ -52,6 +53,7 @@ public class CinemasController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<CinemaEntity>> CreateCinema([FromBody] CinemaRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200 ||
@@ -73,6 +75,7 @@ public class CinemasController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateCinema(int id, [FromBody] CinemaRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200 ||
@@ -97,6 +100,7 @@ public class CinemasController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteCinema(int id)
     {
         var cinema = await _context.Cinemas.FindAsync(id);
@@ -133,6 +137,7 @@ public class ScreensController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ScreenEntity>> CreateScreen([FromBody] ScreenRequest request)
     {
         if (request.CinemaId <= 0 || string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 100)
@@ -164,6 +169,7 @@ public class ScreensController : ControllerBase
     }
 
     [HttpPut("{screenId:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateScreen(int screenId, [FromBody] ScreenRequest request)
     {
         if (request.CinemaId <= 0 || string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 100)
@@ -214,12 +220,14 @@ public class ScreensController : ControllerBase
     }
 
     [HttpPost("{screenId:int}/seats")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<SeatEntity>> CreateSeat(int screenId, [FromBody] SeatRequest request)
     {
         return await CreateSeatForScreen(screenId, request);
     }
 
     [HttpPost("/api/seats")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<SeatEntity>> CreateSeat([FromBody] SeatRequest request)
     {
         return await CreateSeatForScreen(request.ScreenId, request);
@@ -323,6 +331,7 @@ public class ShowtimesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ShowtimeEntity>> CreateShowtime(
         [FromBody] ShowtimeRequest request,
         CancellationToken cancellationToken)
@@ -411,6 +420,7 @@ public class ShowtimesController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateShowtime(int id, [FromBody] ShowtimeRequest request)
     {
         var showtime = await _context.Showtimes.FindAsync(id);

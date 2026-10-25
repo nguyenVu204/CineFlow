@@ -24,11 +24,6 @@ public static class BookingRules
             return "SeatIds must contain only positive values.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.UserId) || request.UserId.Trim().Length > 100)
-        {
-            return "UserId is required and must not exceed 100 characters.";
-        }
-
         return null;
     }
 

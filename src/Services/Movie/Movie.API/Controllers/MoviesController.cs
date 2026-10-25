@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Movie.API.Dtos;
 using Movie.API.Data;
@@ -76,6 +77,7 @@ public class MoviesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<MovieEntity>> CreateMovie([FromBody] MovieRequest request)
     {
         var validationError = ValidateMovie(request);
@@ -101,6 +103,7 @@ public class MoviesController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateMovie(int id, [FromBody] MovieRequest request)
     {
         var validationError = ValidateMovie(request);
@@ -128,6 +131,7 @@ public class MoviesController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteMovie(int id)
     {
         var movie = await _context.Movies.FindAsync(id);

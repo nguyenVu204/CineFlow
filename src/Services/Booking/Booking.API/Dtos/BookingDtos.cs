@@ -1,6 +1,6 @@
 namespace Booking.API.Dtos;
 
-public record HoldSeatRequest(int ShowtimeId, List<int> SeatIds, string UserId);
+public record HoldSeatRequest(int ShowtimeId, List<int> SeatIds);
 
 public record ConfirmBookingRequest(string? IdempotencyKey);
 

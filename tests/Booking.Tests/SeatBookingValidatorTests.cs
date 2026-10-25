@@ -33,7 +33,7 @@ public class SeatBookingValidatorTests
     [Fact]
     public void ValidateHoldRequest_ShouldRejectInvalidSeatIds()
     {
-        var request = new HoldSeatRequest(1, [1, 0], "customer-1");
+        var request = new HoldSeatRequest(1, [1, 0]);
 
         Assert.Equal("SeatIds must contain only positive values.", BookingRules.ValidateHoldRequest(request));
     }
@@ -41,7 +41,7 @@ public class SeatBookingValidatorTests
     [Fact]
     public void ValidateHoldRequest_ShouldAcceptValidRequest()
     {
-        var request = new HoldSeatRequest(1, [1, 2], "customer-1");
+        var request = new HoldSeatRequest(1, [1, 2]);
 
         Assert.Null(BookingRules.ValidateHoldRequest(request));
     }
