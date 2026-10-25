@@ -12,6 +12,7 @@ TestResults/
 **/dist-ssr/
 **/.vite/
 *.tsbuildinfo
+/frontend/
 frontend/cinema-booking-client/vite.config.js
 frontend/cinema-booking-client/vite.config.d.ts
 npm-debug.log*
