@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #07080d;
+  color: #f3f4f6;
+  overflow-x: hidden;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1017;
+}
+::-webkit-scrollbar-thumb {
+  background: #222938;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #e50914;
+}
+
+/* Glowing Cinema Screen Effect */
+.cinema-screen {
+  height: 45px;
+  width: 85%;
+  margin: 0 auto 36px auto;
+  border-top: 5px solid #e50914;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(to bottom, rgba(229, 9, 20, 0.28), rgba(229, 9, 20, 0.02) 70%, transparent);
+  box-shadow: 0 -15px 35px rgba(229, 9, 20, 0.35);
+  position: relative;
+}
+
+/* Seat Styling */
+.seat {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+.seat:not(.sold):hover {
+  transform: scale(1.15) translateY(-2px);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+.seat.selected {
+  background: linear-gradient(135deg, #e50914, #ff4b2b) !important;
+  border-color: #ff758c !important;
+  color: white !important;
+  box-shadow: 0 0 15px rgba(229, 9, 20, 0.85);
+  transform: scale(1.08);
+}
+
+/* Glassmorphism */
+.glass-panel {
+  background: rgba(22, 27, 38, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Ticket Perforation Cutouts */
+.ticket-cutout-left {
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  background-color: #07080d;
+  border-radius: 9999px;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+.ticket-cutout-right {
+  position: absolute;
+  right: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  background-color: #07080d;
+  border-radius: 9999px;
+  border-left: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Admin Auditorium Screen Curve */
+.auditorium-screen {
+  height: 36px;
+  width: 85%;
+  margin: 0 auto 24px auto;
+  border-top: 4px solid #e11d48;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(to bottom, rgba(225, 29, 72, 0.25), transparent);
+  box-shadow: 0 -10px 25px rgba(225, 29, 72, 0.35);
+}
+
+.seat-maint-pattern {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(245, 158, 11, 0.2),
+    rgba(245, 158, 11, 0.2) 5px,
+    rgba(15, 23, 42, 0.95) 5px,
+    rgba(15, 23, 42, 0.95) 10px
+  );
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.35s ease-out forwards;
+}

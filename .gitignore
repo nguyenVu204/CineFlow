@@ -12,7 +12,6 @@ TestResults/
 **/dist-ssr/
 **/.vite/
 *.tsbuildinfo
-/frontend/
 frontend/cinema-booking-client/vite.config.js
 frontend/cinema-booking-client/vite.config.d.ts
 npm-debug.log*
@@ -45,7 +44,57 @@ secrets.json
 .DS_Store
 Thumbs.db
 
-# Local implementation prompt
+# ==============================================================================
+# AI Assistants, Agents, Prompts & Tooling
+# ==============================================================================
+# AI agent workspaces, guides and HTML reference templates
+Agent/
+**/Agent/
+agent/
+**/agent/
+*AI_GUIDE*
+*ai_guide*
+
+# AI prompts and specifications
+*.prompt
+*.prompt.md
+*prompt*.md
 cinema-booking-microservices-prompt-intern-friendly.md
+cinema-booking-microservices-prompt-*.md
+prompts/
+**/prompts/
+
+# AI IDEs & Extensions Configuration
+.cursor/
+.cursorrules
+.cursorignore
+.cursorindexing/
+.claude/
+.claudeignore
+.gemini/
+.antigravity/
+.agy/
+.windsurf/
+.windsurfrules
+.codeium/
+.cline/
+.roo/
+.roomodes
+cline_docs/
+.aider*
+.continue/
+.openai/
+.llm/
+.ai/
+.copilot/
+.github/copilot-instructions.md
+
+# AI Chat Histories, Logs & Transcripts
+transcript*.jsonl
+*.transcript.jsonl
+*.ai.log
+**/chat-history/
+ai-chats/
+*.chat
 
 README.md
