@@ -5,7 +5,6 @@ import { formatVND } from '../../../utils/formatters';
 export const AdminDashboardView: React.FC = () => {
   const {
     kpis,
-    simulateBooking,
     switchModule,
     movies,
     bookings,
@@ -13,50 +12,85 @@ export const AdminDashboardView: React.FC = () => {
     checkInBooking
   } = useAdmin();
 
-  // 7-day revenue chart data simulation
-  const chartDays = [
-    { label: 'Thứ 2', val: 32, height: '45%' },
-    { label: 'Thứ 3', val: 28, height: '38%' },
-    { label: 'Thứ 4', val: 45, height: '62%' },
-    { label: 'Thứ 5', val: 38, height: '52%' },
-    { label: 'Thứ 6', val: 65, height: '80%' },
-    { label: 'Thứ 7', val: 82, height: '95%' },
-    { label: 'Hôm nay', val: 74, height: '88%', isToday: true }
-  ];
+  // 7-day revenue chart data calculated from real bookings
+  const dayNames = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+  const today = new Date();
 
-  // Top movies with simulated percentage
-  const topMoviesData = [
-    { title: movies[0]?.title || 'Hành Tinh Cát: Phần Hai', percent: 45, revenue: 145000000 },
-    { title: movies[1]?.title || 'Kẻ Đánh Cắp Giấc Mơ: Tái Khởi', percent: 27, revenue: 86000000 },
-    { title: movies[2]?.title || 'Quỷ Ám Tầng Hầm Số 9', percent: 16, revenue: 52000000 },
-    { title: movies[3]?.title || 'Vương Quốc Mây Trắng', percent: 12, revenue: 38000000 }
-  ];
+  const rawChartDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - i));
+    const dateStr = d.toISOString().split('T')[0];
+    const isToday = i === 6;
+    const label = isToday ? 'Hôm nay' : dayNames[d.getDay()];
+
+    const dayRevenue = bookings
+      .filter((b) => b.status !== 'cancelled' && b.datetime && b.datetime.startsWith(dateStr))
+      .reduce((sum, b) => sum + b.totalPaid, 0);
+
+    return {
+      label,
+      val: Math.round(dayRevenue / 1000000), // in millions
+      revenue: dayRevenue,
+      isToday
+    };
+  });
+
+  const maxVal = Math.max(...rawChartDays.map((d) => d.val), 1);
+  const chartDays = rawChartDays.map((d) => ({
+    ...d,
+    height: `${Math.max(12, Math.round((d.val / maxVal) * 100))}%`
+  }));
+
+  // Top movies calculated from real bookings
+  const movieRevenueMap = bookings
+    .filter((b) => b.status !== 'cancelled')
+    .reduce((acc, b) => {
+      acc[b.movieTitle] = (acc[b.movieTitle] || 0) + b.totalPaid;
+      return acc;
+    }, {} as Record<string, number>);
+
+  const totalBookingRevenue = Object.values(movieRevenueMap).reduce((sum, v) => sum + v, 0);
+
+  const calculatedTopMovies = Object.entries(movieRevenueMap)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4)
+    .map(([title, revenue]) => ({
+      title,
+      revenue,
+      percent: totalBookingRevenue > 0 ? Math.round((revenue / totalBookingRevenue) * 100) : 0
+    }));
+
+  const topMoviesData =
+    calculatedTopMovies.length > 0
+      ? calculatedTopMovies
+      : movies.slice(0, 4).map((m) => ({
+          title: m.title,
+          revenue: 0,
+          percent: 0
+        }));
 
   // Latest 5 bookings
   const recentBookings = bookings.slice(0, 5);
 
   return (
     <section id="mod-dashboard" className="module-view space-y-6 animate-fade-in">
-      {/* Top Quick Simulation Bar */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Top Status Bar */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-700/80 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-lg shrink-0">
-            <i className="fa-solid fa-bolt"></i>
+            <i className="fa-solid fa-chart-line"></i>
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white">Bảng Điều Khiển Vận Hành Trực Tuyến</h3>
+            <h3 className="text-sm font-bold text-white">Bảng Điều Khiển Vận Hành Hệ Thống</h3>
             <p className="text-xs text-slate-400">
-              Mọi thao tác ở các phân hệ Người dùng, Phim, Lịch chiếu và Đơn vé đều tự động cập nhật
-              số liệu tại đây.
+              Dữ liệu tổng quan từ các phân hệ Người dùng, Phim, Lịch chiếu và Đơn đặt vé được cập nhật theo thời gian thực.
             </p>
           </div>
         </div>
-        <button
-          onClick={simulateBooking}
-          className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs shrink-0 transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-        >
-          <i className="fa-solid fa-wand-magic-sparkles"></i> Giả lập đơn đặt vé mới
-        </button>
+        <div className="hidden sm:flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          Hệ thống hoạt động ổn định
+        </div>
       </div>
 
       {/* 4 KPI Cards */}
@@ -64,16 +98,16 @@ export const AdminDashboardView: React.FC = () => {
         {/* Card 1: Revenue */}
         <div className="bg-admin-900 p-5 rounded-2xl border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">Tổng Doanh Thu Hệ Thống</span>
+            <span className="text-xs font-semibold text-slate-400">Tổng Doanh Thu Đơn Vé</span>
             <span className="w-10 h-10 rounded-xl bg-admin-crimson/15 text-admin-crimson flex items-center justify-center">
               <i className="fa-solid fa-sack-dollar"></i>
             </span>
           </div>
           <p className="text-2xl font-display font-black text-white mt-3">
-            {formatVND(kpis.totalRevenue + 425000000)}
+            {formatVND(kpis.totalRevenue)}
           </p>
           <p className="text-[11px] text-emerald-400 font-semibold mt-1">
-            <i className="fa-solid fa-arrow-trend-up mr-1"></i>+18.4% so với tháng trước
+            <i className="fa-solid fa-circle-check mr-1"></i>Doanh thu thanh toán thành công
           </p>
         </div>
 
@@ -163,7 +197,7 @@ export const AdminDashboardView: React.FC = () => {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-base font-bold text-white">Top Phim Doanh Thu Cao</h3>
-              <p className="text-xs text-slate-400">Tỷ trọng doanh thu phòng vé</p>
+              <p className="text-xs text-slate-400">Tỷ trọng doanh thu phòng vé thực tế</p>
             </div>
             <button
               onClick={() => switchModule('movies')}
@@ -275,4 +309,3 @@ export const AdminDashboardView: React.FC = () => {
     </section>
   );
 };
-

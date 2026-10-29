@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export const Header: React.FC = () => {
   const { currentView, navigateTo, myTickets } = useBooking();
-  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout, openAuthModal } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const activeTicketsCount = myTickets.filter((t) => t.status === 'valid').length;
@@ -83,12 +83,17 @@ export const Header: React.FC = () => {
               </span>
             )}
           </button>
-          <button
-            onClick={() => navigateTo('admin')}
-            className="px-3.5 py-2 rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-1.5 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30"
-          >
-            <i className="fa-solid fa-gauge-high text-xs"></i> Quản Trị
-          </button>
+
+          {/* Admin Button - ONLY displayed when logged in as Admin */}
+          {isAuthenticated && isAdmin && (
+            <button
+              onClick={() => navigateTo('admin')}
+              className="px-3.5 py-2 rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-1.5 text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 shadow-lg shadow-amber-500/10 animate-fade-in"
+              title="Truy cập Bảng Quản Trị CMS"
+            >
+              <i className="fa-solid fa-gauge-high text-xs"></i> Quản Trị
+            </button>
+          )}
         </nav>
 
         {/* Right Side: Auth / User Profile */}
@@ -115,7 +120,14 @@ export const Header: React.FC = () => {
                   <span>{user?.name.charAt(0).toUpperCase()}</span>
                 </div>
                 <div className="text-left">
-                  <p className="text-xs font-bold text-white leading-tight">{user?.name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-bold text-white leading-tight">{user?.name}</p>
+                    {isAdmin && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-extrabold uppercase border border-amber-500/30">
+                        Admin
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-amber-400 font-semibold flex items-center gap-1">
                     <i className="fa-solid fa-crown text-[10px]"></i>{' '}
                     <span>{user?.points.toLocaleString('vi-VN')}</span> điểm
@@ -170,18 +182,21 @@ export const Header: React.FC = () => {
               </span>
             )}
           </button>
-          <button
-            onClick={() => {
-              setMobileMenuOpen(false);
-              navigateTo('admin');
-            }}
-            className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 flex items-center gap-3"
-          >
-            <i className="fa-solid fa-gauge-high"></i> CMS Quản Trị Hệ Thống
-          </button>
+
+          {/* Admin Button Mobile - ONLY displayed when logged in as Admin */}
+          {isAuthenticated && isAdmin && (
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                navigateTo('admin');
+              }}
+              className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 flex items-center gap-3 animate-fade-in"
+            >
+              <i className="fa-solid fa-gauge-high"></i> CMS Quản Trị Hệ Thống
+            </button>
+          )}
         </div>
       )}
     </header>
   );
 };
-

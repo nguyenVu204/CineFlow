@@ -1,10 +1,12 @@
 import React from 'react';
 import { useAdmin } from '../../context/AdminContext';
 import { useBooking } from '../../context/BookingContext';
+import { useAuth } from '../../context/AuthContext';
 
 export const AdminHeader: React.FC = () => {
   const { currentModule, toggleMobileSidebar, openUserModal, openMovieModal } = useAdmin();
   const { navigateTo } = useBooking();
+  const { user, logout } = useAuth();
 
   const moduleTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: {
@@ -34,6 +36,7 @@ export const AdminHeader: React.FC = () => {
   };
 
   const currentInfo = moduleTitles[currentModule] || moduleTitles.dashboard;
+  const initial = user?.name ? user.name.charAt(0).toUpperCase() : 'AD';
 
   return (
     <header className="h-20 bg-admin-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 flex items-center justify-between gap-4 shrink-0">
@@ -76,15 +79,24 @@ export const AdminHeader: React.FC = () => {
         {/* Admin Profile Pill */}
         <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-admin-crimson flex items-center justify-center text-white font-black text-xs shadow">
-            AD
+            {initial}
           </div>
           <div className="hidden sm:block text-left">
-            <p className="text-xs font-bold text-white leading-none">Lê Quản Trị</p>
+            <p className="text-xs font-bold text-white leading-none">{user?.name || 'Quản Trị Viên'}</p>
             <p className="text-[10px] text-emerald-400 font-semibold mt-1">Super Admin</p>
           </div>
+          <button
+            onClick={() => {
+              logout();
+              navigateTo('home');
+            }}
+            title="Đăng xuất khỏi CMS"
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 flex items-center justify-center transition ml-1"
+          >
+            <i className="fa-solid fa-right-from-bracket text-xs"></i>
+          </button>
         </div>
       </div>
     </header>
   );
 };
-

@@ -117,7 +117,26 @@ public class BookingsController : ControllerBase
             return BadRequest(new { success = false, message = validationError });
         }
 
+        await EnsureShowtimeSeatsAsync(request.ShowtimeId, cancellationToken);
+
         var seatIds = request.SeatIds.Distinct().Order().ToList();
+
+        // Support 1-based relative seat numbers (1..75) if client passed relative seat offsets
+        var showtimeSeats = await _context.ShowtimeSeats
+            .Where(x => x.ShowtimeId == request.ShowtimeId)
+            .OrderBy(x => x.SeatId)
+            .ToListAsync(cancellationToken);
+
+        if (showtimeSeats.Count > 0)
+        {
+            var existingSeatIdSet = showtimeSeats.Select(s => s.SeatId).ToHashSet();
+            if (!seatIds.All(id => existingSeatIdSet.Contains(id)) &&
+                seatIds.All(id => id >= 1 && id <= showtimeSeats.Count))
+            {
+                seatIds = seatIds.Select(id => showtimeSeats[id - 1].SeatId).Distinct().Order().ToList();
+            }
+        }
+
         var acquiredLocks = new List<RedisLockHandle>();
 
         try
@@ -222,7 +241,7 @@ public class BookingsController : ControllerBase
                 Items = seats.Select(seat => new BookingItem
                 {
                     SeatId = seat.SeatId,
-                    SeatNumber = $"Seat {seat.SeatId}",
+                    SeatNumber = SeatBookingValidator.GetSeatCode(seat.SeatId),
                     Price = seat.Price
                 }).ToList(),
                 Concessions = concessionItems
@@ -282,23 +301,28 @@ public class BookingsController : ControllerBase
             return BadRequest(new { message = "ShowtimeId must be greater than zero." });
         }
 
+        await EnsureShowtimeSeatsAsync(showtimeId, cancellationToken);
+
         var now = DateTime.UtcNow;
         var seats = await _context.ShowtimeSeats
             .AsNoTracking()
             .Where(x => x.ShowtimeId == showtimeId)
             .OrderBy(x => x.SeatId)
-            .Select(x => new SeatAvailabilityResponse(
-                x.SeatId,
-                x.Status == ShowtimeSeatStatus.Held && x.HoldExpiresAt <= now
-                    ? ShowtimeSeatStatus.Available.ToString()
-                    : x.Status.ToString(),
-                x.Price,
-                x.Status == ShowtimeSeatStatus.Held && x.HoldExpiresAt <= now
-                    ? null
-                    : x.HoldExpiresAt))
             .ToListAsync(cancellationToken);
 
-        return Ok(seats);
+        var result = seats.Select(x => new SeatAvailabilityResponse(
+            x.SeatId,
+            x.Status == ShowtimeSeatStatus.Held && x.HoldExpiresAt <= now
+                ? ShowtimeSeatStatus.Available.ToString()
+                : x.Status.ToString(),
+            x.Price,
+            x.Status == ShowtimeSeatStatus.Held && x.HoldExpiresAt <= now
+                ? null
+                : x.HoldExpiresAt,
+            SeatBookingValidator.GetSeatCode(x.SeatId)))
+        .ToList();
+
+        return Ok(result);
     }
 
     [HttpPut("showtimes/{showtimeId:int}/seats/{seatId:int}/maintenance")]
@@ -311,6 +335,19 @@ public class BookingsController : ControllerBase
     {
         var seat = await _context.ShowtimeSeats
             .FirstOrDefaultAsync(x => x.ShowtimeId == showtimeId && x.SeatId == seatId, cancellationToken);
+
+        if (seat is null)
+        {
+            var allShowtimeSeats = await _context.ShowtimeSeats
+                .Where(x => x.ShowtimeId == showtimeId)
+                .OrderBy(x => x.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (allShowtimeSeats.Count > 0 && seatId >= 1 && seatId <= allShowtimeSeats.Count)
+            {
+                seat = allShowtimeSeats[seatId - 1];
+            }
+        }
 
         if (seat is null)
         {
@@ -961,5 +998,35 @@ public class BookingsController : ControllerBase
             booking.PromoCode,
             booking.DiscountAmount,
             booking.CheckedInAt);
+    }
+
+    private async Task EnsureShowtimeSeatsAsync(int showtimeId, CancellationToken cancellationToken)
+    {
+        var hasSeats = await _context.ShowtimeSeats.AnyAsync(x => x.ShowtimeId == showtimeId, cancellationToken);
+        if (!hasSeats)
+        {
+            var screenSeatOffset = ((showtimeId - 1) % 12) * 75;
+            var seats = new List<ShowtimeSeat>();
+            for (var seatNumber = 1; seatNumber <= 75; seatNumber++)
+            {
+                var seatId = screenSeatOffset + seatNumber;
+                seats.Add(new ShowtimeSeat
+                {
+                    ShowtimeId = showtimeId,
+                    SeatId = seatId,
+                    Status = ShowtimeSeatStatus.Available,
+                    Price = seatNumber > 70 ? 240000m : (seatNumber > 30 ? 115000m : 85000m)
+                });
+            }
+            _context.ShowtimeSeats.AddRange(seats);
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Concurrent seat initialization for showtime {ShowtimeId}", showtimeId);
+            }
+        }
     }
 }

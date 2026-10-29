@@ -51,8 +51,6 @@ interface AdminContextValue {
   addVoucher: (code: string, title: string, type: 'fixed' | 'percent', value: number) => void;
   toggleVoucherActive: (code: string) => void;
   deleteVoucher: (code: string) => void;
-  resetDatabase: () => void;
-  simulateBooking: () => void;
   openUserModal: (user?: AdminUser) => void;
   closeUserModal: () => void;
   openMovieModal: (movie?: AdminMovie) => void;
@@ -534,63 +532,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [showToast]
   );
 
-  // Simulation
-  const simulateBooking = useCallback(async () => {
-    try {
-      const rows = ['B', 'C', 'D', 'E'];
-      const r = rows[Math.floor(Math.random() * rows.length)];
-      const seat1 = `${r}5`;
-      const seat2 = `${r}6`;
-      const user = users[0];
-      const customerName = user ? user.name : 'Khách vãng lai';
-      const customerPhone = user ? user.phone : '0988123456';
-
-      const holdRes = await bookingApi.holdSeats({
-        showtimeId: 1,
-        seatIds: [15, 16],
-        concessions: [{ concessionId: 1, quantity: 1 }],
-        promoCode: 'CINEVERSE2025',
-        customerName,
-        customerPhone,
-        paymentMethod: 'MoMo'
-      });
-
-      const confirmRes = await bookingApi.confirmBooking(holdRes.bookingId);
-      showToast(
-        `[Giả lập] Đặt vé thành công mã ${confirmRes.bookingCode}! Cho khách ${customerName}`,
-        'success'
-      );
-
-      const updatedBookings = await bookingApi.getAdminBookings();
-      setBookings(updatedBookings);
-      setSoldSeats((prev) => [...prev, seat1, seat2]);
-    } catch (err: any) {
-      showToast('Lỗi mô phỏng đặt vé: ' + (err.message || 'Lỗi server'), 'error');
-    }
-  }, [users, showToast]);
-
-  const resetDatabase = useCallback(async () => {
-    try {
-      const [u, m, s, b, f, v] = await Promise.all([
-        authApi.getUsers(),
-        movieApi.getAdminMovies(),
-        cinemaApi.getAdminShowtimes(),
-        bookingApi.getAdminBookings(),
-        concessionApi.getAdminFnb(),
-        promotionApi.getPromotions()
-      ]);
-      setUsers(u);
-      setMovies(m);
-      setShowtimes(s);
-      setBookings(b);
-      setFnb(f);
-      setVouchers(v);
-      showToast('Đã đồng bộ lại toàn bộ dữ liệu mới nhất từ backend!', 'info');
-    } catch {
-      showToast('Lỗi khi tải lại dữ liệu từ backend.', 'error');
-    }
-  }, [showToast]);
-
   // Modals
   const openUserModal = useCallback((user?: AdminUser) => {
     setUserModal({ isOpen: true, editingUser: user || null });
@@ -670,8 +611,6 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addVoucher,
         toggleVoucherActive,
         deleteVoucher,
-        resetDatabase,
-        simulateBooking,
         openUserModal,
         closeUserModal,
         openMovieModal,

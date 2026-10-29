@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useBooking } from '../../context/BookingContext';
 
 export const AuthModal: React.FC = () => {
   const { isAuthModalOpen, authModalTab, closeAuthModal, login, register } = useAuth();
+  const { navigateTo } = useBooking();
   const [tab, setTab] = useState<'login' | 'register'>(authModalTab);
 
   // Form states
@@ -39,10 +41,18 @@ export const AuthModal: React.FC = () => {
     }
 
     setLoading(true);
-    const success = await login({ email: loginEmail, password: loginPassword });
+    const result = await login({ email: loginEmail, password: loginPassword });
     setLoading(false);
-    if (!success) {
+
+    if (!result.success) {
       setLoginError('Email hoặc mật khẩu không chính xác.');
+    } else {
+      // Auto-route: Admin goes to CMS, Customer goes to Client Portal
+      if (result.isAdmin) {
+        navigateTo('admin');
+      } else {
+        navigateTo('home');
+      }
     }
   };
 
@@ -62,11 +72,14 @@ export const AuthModal: React.FC = () => {
     const success = await register({
       email: regEmail,
       password: regPassword,
-      displayName: regName
+      displayName: regName,
+      phoneNumber: regPhone
     });
     setLoading(false);
     if (!success) {
       setRegError('Đăng ký thất bại. Email có thể đã tồn tại.');
+    } else {
+      navigateTo('home');
     }
   };
 
@@ -114,7 +127,7 @@ export const AuthModal: React.FC = () => {
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="nhapemail@gmail.com"
+                placeholder="Nhập địa chỉ email của bạn"
                 required
                 className="w-full bg-cinema-900 border border-white/10 focus:border-cinema-red rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition-colors"
               />
@@ -136,21 +149,10 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 bg-gradient-to-r from-cinema-red to-amber-600 hover:from-cinema-redGlow hover:to-amber-500 text-white font-bold rounded-xl shadow-lg shadow-cinema-red/30 transition-all duration-300 hover:scale-[1.02] flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-gradient-to-r from-cinema-red to-amber-600 hover:from-red-600 hover:to-amber-500 text-white font-bold rounded-xl shadow-lg shadow-cinema-red/30 transition-all duration-300 hover:scale-[1.02] flex items-center justify-center gap-2"
             >
-              {loading ? (
-                <span>Đang xử lý...</span>
-              ) : (
-                <>
-                  <span>Đăng Nhập Ngay</span>
-                  <i className="fa-solid fa-arrow-right text-xs"></i>
-                </>
-              )}
+              {loading ? <span>Đang xác thực...</span> : <span>Đăng Nhập Ngay</span>}
             </button>
-
-            <p className="text-[11px] text-gray-500 text-center pt-2">
-              💡 Gợi ý trải nghiệm: Bạn có thể nhập email bất kỳ và mật khẩu từ 6 ký tự để đăng nhập.
-            </p>
           </form>
         ) : (
           <form onSubmit={handleRegisterSubmit} className="space-y-4">
@@ -210,7 +212,7 @@ export const AuthModal: React.FC = () => {
               ) : (
                 <>
                   <i className="fa-solid fa-gift"></i>
-                  <span>Tạo Tài Khoản (+500 Điểm Thưởng)</span>
+                  <span>Tạo Tài Khoản Khách Hàng (+150 Điểm)</span>
                 </>
               )}
             </button>
@@ -220,4 +222,3 @@ export const AuthModal: React.FC = () => {
     </div>
   );
 };
-

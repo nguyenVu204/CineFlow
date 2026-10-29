@@ -8,7 +8,6 @@ export const AdminSidebar: React.FC = () => {
     switchModule,
     mobileSidebarOpen,
     toggleMobileSidebar,
-    resetDatabase,
     users,
     movies,
     showtimes,
@@ -190,12 +189,6 @@ export const AdminSidebar: React.FC = () => {
             </span>
             <span className="font-mono text-[11px] text-slate-500">v3.5 Pro</span>
           </div>
-          <button
-            onClick={resetDatabase}
-            className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 border border-slate-700 hover:border-red-500/30 text-xs font-bold transition flex items-center justify-center gap-2"
-          >
-            <i className="fa-solid fa-rotate-left"></i> Khôi phục dữ liệu mẫu
-          </button>
         </div>
       </aside>
     </>

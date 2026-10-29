@@ -112,7 +112,7 @@ public static class DbInitializer
             .ToHashSet();
         var seedSeats = new List<ShowtimeSeatEntity>();
 
-        for (var showtimeId = 1; showtimeId <= 36; showtimeId++)
+        for (var showtimeId = 1; showtimeId <= 108; showtimeId++)
         {
             var screenSeatOffset = ((showtimeId - 1) % 12) * 75;
             for (var seatNumber = 1; seatNumber <= 75; seatNumber++)

@@ -14,12 +14,18 @@ export const AdminShowtimesView: React.FC = () => {
   } = useAdmin();
 
   const [movieTitle, setMovieTitle] = useState(
-    movies[0]?.title || 'Hành Tinh Cát: Phần Hai'
+    () => movies[0]?.title || ''
   );
   const [room, setRoom] = useState('Phòng IMAX 01');
   const [format, setFormat] = useState('IMAX Laser 3D');
   const [time, setTime] = useState('20:15');
-  const [date, setDate] = useState('2025-03-28');
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  React.useEffect(() => {
+    if (!movieTitle && movies.length > 0) {
+      setMovieTitle(movies[0].title);
+    }
+  }, [movies, movieTitle]);
 
   const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
   const totalSeats = 70; // 7 rows x 10 cols

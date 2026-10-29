@@ -56,11 +56,12 @@ export const SeatSelectionView: React.FC = () => {
   const combosSummaryText =
     combosSummaryList.length > 0 ? combosSummaryList.join(', ') : 'Không có';
 
-  // Helper to determine seat status from backend
-  const getSeatStatus = (seatId: number) => {
-    const item = seatAvailability.find((s) => s.seatId === seatId);
-    if (!item) return 'Available';
-    return item.status;
+  // Helper to determine seat item from backend availability
+  const getSeatItem = (code: string, fallbackIdx: number) => {
+    return (
+      seatAvailability.find((s) => s.seatNumber === code) ||
+      seatAvailability[fallbackIdx]
+    );
   };
 
   return (
@@ -139,8 +140,9 @@ export const SeatSelectionView: React.FC = () => {
                           Array.from({ length: 5 }, (_, idx) => {
                             const num = idx + 1;
                             const code = `H${num}`;
-                            const seatId = 70 + num; // seat id 71-75
-                            const status = getSeatStatus(seatId);
+                            const seatItem = getSeatItem(code, 70 + idx);
+                            const seatId = seatItem ? seatItem.seatId : 70 + num;
+                            const status = seatItem ? seatItem.status : 'Available';
                             const isSold = status === 'Booked' || status === 'Held';
                             const isMaintenance = status === 'Maintenance';
                             const isSelected = booking.seats.some((s) => s.code === code);
@@ -149,7 +151,7 @@ export const SeatSelectionView: React.FC = () => {
                               code,
                               row: 'H',
                               type: 'sweetbox',
-                              price: 240000
+                              price: seatItem?.price || 240000
                             };
 
                             return (
@@ -180,13 +182,15 @@ export const SeatSelectionView: React.FC = () => {
                           Array.from({ length: 10 }, (_, idx) => {
                             const col = idx + 1;
                             const code = `${row}${col}`;
-                            const seatId = rIdx * 10 + col; // 1 to 70
-                            const status = getSeatStatus(seatId);
+                            const seatIdx = rIdx * 10 + idx;
+                            const seatItem = getSeatItem(code, seatIdx);
+                            const seatId = seatItem ? seatItem.seatId : rIdx * 10 + col;
+                            const status = seatItem ? seatItem.status : 'Available';
                             const isSold = status === 'Booked' || status === 'Held';
                             const isMaintenance = status === 'Maintenance';
                             const isSelected = booking.seats.some((s) => s.code === code);
                             const type = isVip ? 'vip' : 'standard';
-                            const price = isVip ? 115000 : 85000;
+                            const price = seatItem?.price || (isVip ? 115000 : 85000);
                             const seatData: SelectedSeatInfo = {
                               seatId,
                               code,

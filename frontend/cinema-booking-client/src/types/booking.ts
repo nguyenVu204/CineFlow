@@ -30,6 +30,7 @@ export interface HoldSeatResponse {
 
 export interface SeatAvailabilityResponse {
   seatId: number;
+  seatNumber?: string;
   status: 'Available' | 'Held' | 'Booked' | 'Maintenance' | string;
   price: number;
   holdExpiresAt?: string;

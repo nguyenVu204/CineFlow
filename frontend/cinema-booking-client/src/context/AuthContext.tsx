@@ -3,12 +3,19 @@ import { CurrentUser, LoginRequest, RegisterRequest } from '../types/auth';
 import { authApi } from '../services/api/authApi';
 import { useToast } from './ToastContext';
 
+export interface LoginResult {
+  success: boolean;
+  user?: CurrentUser;
+  isAdmin?: boolean;
+}
+
 interface AuthContextValue {
   user: CurrentUser | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   isAuthModalOpen: boolean;
   authModalTab: 'login' | 'register';
-  login: (data: LoginRequest) => Promise<boolean>;
+  login: (data: LoginRequest) => Promise<LoginResult>;
   register: (data: RegisterRequest) => Promise<boolean>;
   logout: () => void;
   openAuthModal: (tab?: 'login' | 'register') => void;
@@ -28,6 +35,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
   const { showToast } = useToast();
 
+  const isAdmin = user?.roles?.some((r) => r.toLowerCase() === 'admin') ?? false;
+
   useEffect(() => {
     if (user) {
       localStorage.setItem('cineverse_user', JSON.stringify(user));
@@ -41,26 +50,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const token = localStorage.getItem('cineverse_token');
     if (token) {
-      authApi.getMe().then((me) => {
-        setUser((prev) => prev ? {
-          ...prev,
-          name: me.displayName,
-          points: me.points,
-          phone: me.phoneNumber || prev.phone,
-          roles: me.roles
-        } : {
-          id: me.id,
-          email: me.email,
-          name: me.displayName,
-          phone: me.phoneNumber,
-          points: me.points,
-          roles: me.roles,
-          status: me.status,
-          token
+      authApi
+        .getMe()
+        .then((me) => {
+          setUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  name: me.displayName,
+                  points: me.points,
+                  phone: me.phoneNumber || prev.phone,
+                  roles: me.roles
+                }
+              : {
+                  id: me.id,
+                  email: me.email,
+                  name: me.displayName,
+                  phone: me.phoneNumber,
+                  points: me.points,
+                  roles: me.roles,
+                  status: me.status,
+                  token
+                }
+          );
+        })
+        .catch(() => {
+          // token expired
         });
-      }).catch(() => {
-        // token expired
-      });
     }
   }, []);
 
@@ -73,28 +89,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   };
 
-  const login = async (data: LoginRequest): Promise<boolean> => {
+  const login = async (data: LoginRequest): Promise<LoginResult> => {
     try {
       const res = await authApi.login(data);
+      const roles = res.user.roles || ['Customer'];
+      const userIsAdmin = roles.some((r) => r.toLowerCase() === 'admin');
       const loggedUser: CurrentUser = {
         id: res.user.id,
         email: res.user.email,
         name: res.user.displayName,
         phone: res.user.phoneNumber,
         points: res.user.points,
-        roles: res.user.roles || ['Customer'],
+        roles,
         status: res.user.status,
         token: res.accessToken
       };
+
       localStorage.setItem('cineverse_token', res.accessToken);
       setUser(loggedUser);
-      showToast(`Đăng nhập thành công! Chào mừng ${loggedUser.name}`, 'success');
+      showToast(
+        userIsAdmin
+          ? `Đăng nhập quyền Quản Trị Viên! Đang chuyển đến CMS...`
+          : `Đăng nhập thành công! Chào mừng ${loggedUser.name}`,
+        'success'
+      );
       closeAuthModal();
-      return true;
+      return { success: true, user: loggedUser, isAdmin: userIsAdmin };
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Email hoặc mật khẩu không chính xác!';
       showToast(msg, 'error');
-      return false;
+      return { success: false };
     }
   };
 
@@ -113,11 +137,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       localStorage.setItem('cineverse_token', res.accessToken);
       setUser(newUser);
-      showToast(`Đăng ký tài khoản thành công! Bạn nhận được +${newUser.points} điểm CINEVERSE Club.`, 'success');
+      showToast(
+        `Đăng ký tài khoản thành công! Bạn nhận được +${newUser.points} điểm CINEVERSE Club.`,
+        'success'
+      );
       closeAuthModal();
       return true;
     } catch (err: any) {
-      const msg = err.response?.data?.message || 'Đăng ký không thành công. Vui lòng kiểm tra lại thông tin!';
+      const msg =
+        err.response?.data?.message || 'Đăng ký không thành công. Vui lòng kiểm tra lại thông tin!';
       showToast(msg, 'error');
       return false;
     }
@@ -134,9 +162,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
     try {
       const updatedUser = await authApi.addPoints(amount);
-      setUser((prev) => prev ? { ...prev, points: updatedUser.points } : null);
+      setUser((prev) => (prev ? { ...prev, points: updatedUser.points } : null));
     } catch {
-      setUser((prev) => prev ? { ...prev, points: prev.points + amount } : null);
+      setUser((prev) => (prev ? { ...prev, points: prev.points + amount } : null));
     }
   };
 
@@ -145,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         isAuthenticated: !!user,
+        isAdmin,
         isAuthModalOpen,
         authModalTab,
         login,

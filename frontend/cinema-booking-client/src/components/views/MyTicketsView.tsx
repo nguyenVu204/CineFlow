@@ -1,10 +1,9 @@
 import React from 'react';
 import { useBooking } from '../../context/BookingContext';
-import { CONCESSIONS_DATA } from '../../services/mock/concessionsData';
 import { formatVND } from '../../utils/formatters';
 
 export const MyTicketsView: React.FC = () => {
-  const { myTickets, cancelTicket, openTicketQr, navigateTo } = useBooking();
+  const { myTickets, cancelTicket, openTicketQr, navigateTo, concessions } = useBooking();
 
   return (
     <section id="view-mytickets" className="page-view animate-fade-in py-12">
@@ -49,8 +48,8 @@ export const MyTicketsView: React.FC = () => {
               const combosList = Object.entries(ticket.combos)
                 .filter(([_, qty]) => qty > 0)
                 .map(([id, qty]) => {
-                  const c = CONCESSIONS_DATA.find((item) => item.id === id);
-                  return `${qty}x ${c?.name.split('(')[0].trim()}`;
+                  const c = concessions.find((item) => item.id.toString() === id.toString());
+                  return `${qty}x ${c?.name ? c.name.split('(')[0].trim() : `Combo #${id}`}`;
                 });
               const combosText = combosList.length > 0 ? combosList.join(', ') : 'Không có';
 

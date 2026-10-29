@@ -42,7 +42,8 @@ public record SeatAvailabilityResponse(
     int SeatId,
     string Status,
     decimal Price,
-    DateTime? HoldExpiresAt);
+    DateTime? HoldExpiresAt,
+    string SeatNumber = "");
 
 public record InitializeShowtimeSeatsRequest(
     IReadOnlyCollection<int> SeatIds,
