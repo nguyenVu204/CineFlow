@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useBooking } from '../../context/BookingContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { CONCESSIONS_DATA } from '../../services/mock/concessionsData';
+import { paymentApi, PaymentCreationResponse } from '../../services/api/paymentApi';
 import { formatVND, getAgeBadgeColor } from '../../utils/formatters';
 
 export const CheckoutView: React.FC = () => {
   const {
     booking,
+    concessions,
     seatHoldSeconds,
     calculateTotals,
     applyPromo,
@@ -31,9 +32,19 @@ export const CheckoutView: React.FC = () => {
     booking.customerPhone || (user ? user.phone || '0987654321' : '0987654321')
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentTxn, setPaymentTxn] = useState<PaymentCreationResponse | null>(null);
 
   const { ticketTotal, comboTotal, discount, finalTotal } = calculateTotals();
   const subtotal = ticketTotal + comboTotal;
+
+  // Initialize payment gateway transaction if booking ID is present
+  useEffect(() => {
+    if (booking.backendBookingId) {
+      paymentApi.createPayment(booking.backendBookingId, booking.paymentMethod)
+        .then(setPaymentTxn)
+        .catch(() => {});
+    }
+  }, [booking.backendBookingId, booking.paymentMethod]);
 
   // Format countdown timer 05:00
   const minutes = Math.floor(seatHoldSeconds / 60)
@@ -41,12 +52,12 @@ export const CheckoutView: React.FC = () => {
     .padStart(2, '0');
   const seconds = (seatHoldSeconds % 60).toString().padStart(2, '0');
 
-  const handleApplyPromo = () => {
+  const handleApplyPromo = async () => {
     if (!promoInput.trim()) {
       setPromoFeedback({ text: 'Vui lòng nhập mã giảm giá.', isError: true });
       return;
     }
-    const res = applyPromo(promoInput);
+    const res = await applyPromo(promoInput);
     setPromoFeedback({ text: res.message, isError: !res.success });
   };
 
@@ -69,22 +80,22 @@ export const CheckoutView: React.FC = () => {
 
   const qrMap: Record<string, { url: string; badge: string; color: string }> = {
     momo: {
-      url: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-MOMO',
+      url: paymentTxn?.qrCodeUrl || 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-MOMO',
       badge: 'Thanh toán qua Ví MoMo',
       color: 'bg-pink-500/20 text-pink-400'
     },
     vnpay: {
-      url: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-VNPAY',
+      url: paymentTxn?.qrCodeUrl || 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-VNPAY',
       badge: 'Thanh toán qua VNPAY-QR',
       color: 'bg-blue-500/20 text-blue-400'
     },
     zalopay: {
-      url: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-ZALOPAY',
+      url: paymentTxn?.qrCodeUrl || 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-ZALOPAY',
       badge: 'Thanh toán qua Ví ZaloPay',
       color: 'bg-sky-500/20 text-sky-400'
     },
     visa: {
-      url: 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-VISA',
+      url: paymentTxn?.qrCodeUrl || 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CINEVERSE-PAY-VISA',
       badge: 'Thanh toán qua Thẻ Quốc Tế Visa/Master',
       color: 'bg-amber-500/20 text-amber-400'
     }
@@ -97,8 +108,8 @@ export const CheckoutView: React.FC = () => {
   const combosSummaryList = Object.entries(booking.combos)
     .filter(([_, qty]) => qty > 0)
     .map(([id, qty]) => {
-      const c = CONCESSIONS_DATA.find((item) => item.id === id);
-      return `${qty}x ${c?.name.split('(')[0].trim()}`;
+      const c = concessions.find((item) => item.id === id);
+      return `${qty}x ${c?.name.split('(')[0].trim() || 'Combo'}`;
     });
   const combosText = combosSummaryList.length > 0 ? combosSummaryList.join(', ') : 'Không có';
 
@@ -267,9 +278,9 @@ export const CheckoutView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Simulated QR Scan Area */}
+                  {/* Payment Gateway Dynamic QR Scan Area */}
                   <div className="bg-cinema-950/90 rounded-2xl p-4 border border-white/10 flex flex-col sm:flex-row items-center gap-5">
-                    <div className="w-32 h-32 bg-white p-2 rounded-xl shrink-0 flex items-center justify-center">
+                    <div className="w-32 h-32 bg-white p-2 rounded-xl shrink-0 flex items-center justify-center shadow-md">
                       <img
                         src={activeQr.url}
                         alt="QR Payment"
@@ -283,12 +294,11 @@ export const CheckoutView: React.FC = () => {
                         {activeQr.badge}
                       </span>
                       <h4 className="text-sm font-bold text-white mb-1">
-                        Quét mã QR hoặc nhấn Xác Nhận Thanh Toán
+                        Cổng Thanh Toán Trực Tuyến CINEVERSE
                       </h4>
                       <p className="text-xs text-gray-400 leading-relaxed">
-                        Hệ thống mô phỏng cổng thanh toán tự động. Nhấn nút{' '}
-                        <strong className="text-white">"Xác Nhận Thanh Toán"</strong> bên phải để
-                        hoàn tất xuất vé điện tử ngay lập tức.
+                        Mã QR được tạo động từ cổng thanh toán backend. Quét mã bằng ứng dụng ngân hàng/ví điện tử hoặc nhấn nút{' '}
+                        <strong className="text-white">"Xác Nhận Thanh Toán"</strong> để hoàn tất xuất vé.
                       </p>
                     </div>
                   </div>
@@ -435,8 +445,8 @@ export const CheckoutView: React.FC = () => {
                         {Object.entries(lastConfirmedTicket.combos)
                           .filter(([_, qty]) => qty > 0)
                           .map(([id, qty]) => {
-                            const c = CONCESSIONS_DATA.find((item) => item.id === id);
-                            return `${qty}x ${c?.name.split('(')[0].trim()}`;
+                            const c = concessions.find((item) => item.id === id);
+                            return `${qty}x ${c?.name.split('(')[0].trim() || 'Combo'}`;
                           })
                           .join(', ') || 'Không có'}
                       </p>
@@ -496,4 +506,3 @@ export const CheckoutView: React.FC = () => {
     </section>
   );
 };
-

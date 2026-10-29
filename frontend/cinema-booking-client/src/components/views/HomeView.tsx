@@ -3,9 +3,10 @@ import { useBooking } from '../../context/BookingContext';
 import { useToast } from '../../context/ToastContext';
 import { movieApi } from '../../services/api/movieApi';
 import { cinemaApi } from '../../services/api/cinemaApi';
+import { promotionApi } from '../../services/api/promotionApi';
 import { MovieItem } from '../../types/movie';
 import { CinemaItem, ShowtimeSlot } from '../../types/cinema';
-import { PROMOTIONS_DATA } from '../../services/mock/promotionsData';
+import { AdminVoucher } from '../../types/admin';
 import { getAgeBadgeColor } from '../../utils/formatters';
 
 export const HomeView: React.FC = () => {
@@ -15,6 +16,7 @@ export const HomeView: React.FC = () => {
   const [movies, setMovies] = useState<MovieItem[]>([]);
   const [cinemas, setCinemas] = useState<CinemaItem[]>([]);
   const [showtimes, setShowtimes] = useState<ShowtimeSlot[]>([]);
+  const [promotions, setPromotions] = useState<AdminVoucher[]>([]);
 
   // Hero state
   const [heroIndex, setHeroIndex] = useState(0);
@@ -30,7 +32,7 @@ export const HomeView: React.FC = () => {
   const [qbDate, setQbDate] = useState<string>('');
   const [qbTime, setQbTime] = useState<string>('');
 
-  // Fetch movies and cinemas
+  // Fetch movies, cinemas, showtimes, promotions
   useEffect(() => {
     let mounted = true;
     movieApi.getMovies().then((data) => {
@@ -49,6 +51,11 @@ export const HomeView: React.FC = () => {
       if (mounted) {
         setShowtimes(data);
         if (data.length > 0) setQbTime(data[0].time);
+      }
+    });
+    promotionApi.getPromotions(true).then((data) => {
+      if (mounted) {
+        setPromotions(data);
       }
     });
     return () => {
@@ -468,34 +475,40 @@ export const HomeView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {PROMOTIONS_DATA.map((promo) => {
+            {promotions.map((promo, idx) => {
+              const color = idx % 3 === 0 ? 'red' : idx % 3 === 1 ? 'amber' : 'emerald';
               const borderHover =
-                promo.color === 'red'
+                color === 'red'
                   ? 'hover:border-cinema-red/50'
-                  : promo.color === 'amber'
+                  : color === 'amber'
                   ? 'hover:border-amber-500/50'
                   : 'hover:border-emerald-500/50';
 
               const glowBg =
-                promo.color === 'red'
+                color === 'red'
                   ? 'bg-cinema-red/15'
-                  : promo.color === 'amber'
+                  : color === 'amber'
                   ? 'bg-amber-500/15'
                   : 'bg-emerald-500/15';
 
               const badgeClass =
-                promo.color === 'red'
+                color === 'red'
                   ? 'bg-cinema-red/20 text-cinema-red'
-                  : promo.color === 'amber'
+                  : color === 'amber'
                   ? 'bg-amber-500/20 text-amber-400'
                   : 'bg-emerald-500/20 text-emerald-400';
 
               const btnHover =
-                promo.color === 'red'
+                color === 'red'
                   ? 'hover:bg-cinema-red'
-                  : promo.color === 'amber'
+                  : color === 'amber'
                   ? 'hover:bg-amber-500'
                   : 'hover:bg-emerald-600';
+
+              const discountLabel =
+                promo.type === 'percent'
+                  ? `Giảm ${promo.value}%`
+                  : `Giảm ${Number(promo.value).toLocaleString('vi-VN')}đ`;
 
               return (
                 <div
@@ -504,10 +517,12 @@ export const HomeView: React.FC = () => {
                 >
                   <div className={`absolute -right-8 -top-8 w-28 h-28 ${glowBg} rounded-full blur-xl`}></div>
                   <span className={`inline-block px-3 py-1 rounded-lg ${badgeClass} text-xs font-bold mb-3`}>
-                    {promo.discountText}
+                    {discountLabel}
                   </span>
                   <h3 className="text-lg font-bold text-white mb-2">{promo.title}</h3>
-                  <p className="text-xs text-gray-400 leading-relaxed mb-5">{promo.desc}</p>
+                  <p className="text-xs text-gray-400 leading-relaxed mb-5">
+                    Áp dụng cho mọi giao dịch đặt vé trực tuyến trên hệ thống Cineverse.
+                  </p>
                   <div className="flex items-center justify-between bg-cinema-950/80 p-2.5 rounded-xl border border-dashed border-white/20">
                     <code className="text-sm font-mono font-bold text-amber-400">{promo.code}</code>
                     <button
@@ -526,4 +541,3 @@ export const HomeView: React.FC = () => {
     </section>
   );
 };
-

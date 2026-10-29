@@ -16,7 +16,8 @@ public static class IdentityDbInitializer
         await database.Database.EnsureCreatedAsync(cancellationToken);
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        foreach (var role in new[] { "Customer", "Admin" })
+        var roles = new[] { "Customer", "Admin", "Staff", "VIP" };
+        foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
             {
@@ -25,20 +26,12 @@ public static class IdentityDbInitializer
             }
         }
 
-        var adminEmail = configuration["BootstrapAdmin:Email"];
-        var adminPassword = configuration["BootstrapAdmin:Password"];
-        if (string.IsNullOrWhiteSpace(adminEmail) && string.IsNullOrWhiteSpace(adminPassword))
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
-        {
-            throw new InvalidOperationException(
-                "Both BootstrapAdmin:Email and BootstrapAdmin:Password must be configured to seed an administrator.");
-        }
-
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        // Seed Admin user
+        var adminEmail = configuration["BootstrapAdmin:Email"] ?? "admin@cineverse.vn";
+        var adminPassword = configuration["BootstrapAdmin:Password"] ?? "Admin@123456";
+
         var admin = await userManager.FindByEmailAsync(adminEmail);
         if (admin is null)
         {
@@ -46,8 +39,11 @@ public static class IdentityDbInitializer
             {
                 UserName = adminEmail,
                 Email = adminEmail,
-                DisplayName = "System administrator",
-                EmailConfirmed = true
+                DisplayName = "Quản trị viên CINEVERSE",
+                PhoneNumber = "0901234567",
+                EmailConfirmed = true,
+                Points = 9999,
+                JoinedAt = DateTime.UtcNow.AddMonths(-6)
             };
             var createResult = await userManager.CreateAsync(admin, adminPassword);
             EnsureSucceeded(createResult, "Could not create the bootstrap administrator.");
@@ -57,6 +53,50 @@ public static class IdentityDbInitializer
         {
             var roleResult = await userManager.AddToRoleAsync(admin, "Admin");
             EnsureSucceeded(roleResult, "Could not grant the bootstrap administrator role.");
+        }
+
+        // Seed Staff user (for Ticket Check-in testing)
+        var staffEmail = "staff@cineverse.vn";
+        var staff = await userManager.FindByEmailAsync(staffEmail);
+        if (staff is null)
+        {
+            staff = new ApplicationUser
+            {
+                UserName = staffEmail,
+                Email = staffEmail,
+                DisplayName = "Nguyễn Văn Soát Vé",
+                PhoneNumber = "0912345678",
+                EmailConfirmed = true,
+                Points = 2500,
+                JoinedAt = DateTime.UtcNow.AddMonths(-3)
+            };
+            var createStaff = await userManager.CreateAsync(staff, "Staff@123456");
+            if (createStaff.Succeeded)
+            {
+                await userManager.AddToRoleAsync(staff, "Staff");
+            }
+        }
+
+        // Seed Demo VIP Customer
+        var vipEmail = "customer@cineverse.vn";
+        var vipCustomer = await userManager.FindByEmailAsync(vipEmail);
+        if (vipCustomer is null)
+        {
+            vipCustomer = new ApplicationUser
+            {
+                UserName = vipEmail,
+                Email = vipEmail,
+                DisplayName = "Trần Thị Mai Phương",
+                PhoneNumber = "0987654321",
+                EmailConfirmed = true,
+                Points = 3450,
+                JoinedAt = DateTime.UtcNow.AddMonths(-2)
+            };
+            var createVip = await userManager.CreateAsync(vipCustomer, "User@123456");
+            if (createVip.Succeeded)
+            {
+                await userManager.AddToRoleAsync(vipCustomer, "Customer");
+            }
         }
     }
 

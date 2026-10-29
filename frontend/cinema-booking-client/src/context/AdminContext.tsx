@@ -8,19 +8,13 @@ import {
   AdminFnb,
   AdminVoucher
 } from '../types/admin';
-import {
-  INITIAL_ADMIN_USERS,
-  INITIAL_ADMIN_MOVIES,
-  INITIAL_ADMIN_SHOWTIMES,
-  INITIAL_ADMIN_BOOKINGS,
-  INITIAL_ADMIN_FNB,
-  INITIAL_ADMIN_VOUCHERS,
-  INITIAL_ADMIN_SOLD_SEATS,
-  INITIAL_ADMIN_MAINT_SEATS
-} from '../services/mock/adminData';
 import { useToast } from './ToastContext';
-
-const STORAGE_KEY = 'CINEVERSE_STANDALONE_ADMIN_V1';
+import { authApi } from '../services/api/authApi';
+import { movieApi } from '../services/api/movieApi';
+import { cinemaApi } from '../services/api/cinemaApi';
+import { bookingApi } from '../services/api/bookingApi';
+import { concessionApi } from '../services/api/concessionApi';
+import { promotionApi } from '../services/api/promotionApi';
 
 interface AdminContextValue {
   currentModule: AdminModuleType;
@@ -97,113 +91,74 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ticket: null
   });
 
-  // DB datasets
-  const [users, setUsers] = useState<AdminUser[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.users) return parsed.users;
-      } catch {}
-    }
-    return INITIAL_ADMIN_USERS;
-  });
+  // DB datasets loaded from Backend
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [movies, setMovies] = useState<AdminMovie[]>([]);
+  const [showtimes, setShowtimes] = useState<AdminShowtime[]>([]);
+  const [bookings, setBookings] = useState<AdminBooking[]>([]);
+  const [fnb, setFnb] = useState<AdminFnb[]>([]);
+  const [vouchers, setVouchers] = useState<AdminVoucher[]>([]);
+  const [soldSeats, setSoldSeats] = useState<string[]>([]);
+  const [maintSeats, setMaintSeats] = useState<string[]>([]);
 
-  const [movies, setMovies] = useState<AdminMovie[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.movies) return parsed.movies;
-      } catch {}
-    }
-    return INITIAL_ADMIN_MOVIES;
-  });
-
-  const [showtimes, setShowtimes] = useState<AdminShowtime[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.showtimes) return parsed.showtimes;
-      } catch {}
-    }
-    return INITIAL_ADMIN_SHOWTIMES;
-  });
-
-  const [bookings, setBookings] = useState<AdminBooking[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.bookings) return parsed.bookings;
-      } catch {}
-    }
-    return INITIAL_ADMIN_BOOKINGS;
-  });
-
-  const [fnb, setFnb] = useState<AdminFnb[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.fnb) return parsed.fnb;
-      } catch {}
-    }
-    return INITIAL_ADMIN_FNB;
-  });
-
-  const [vouchers, setVouchers] = useState<AdminVoucher[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.vouchers) return parsed.vouchers;
-      } catch {}
-    }
-    return INITIAL_ADMIN_VOUCHERS;
-  });
-
-  const [soldSeats, setSoldSeats] = useState<string[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.soldSeats) return parsed.soldSeats;
-      } catch {}
-    }
-    return INITIAL_ADMIN_SOLD_SEATS;
-  });
-
-  const [maintSeats, setMaintSeats] = useState<string[]>(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.maintSeats) return parsed.maintSeats;
-      } catch {}
-    }
-    return INITIAL_ADMIN_MAINT_SEATS;
-  });
-
-  // Persist DB state
+  // Initial data loading from Backend APIs
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          users,
-          movies,
-          showtimes,
-          bookings,
-          fnb,
-          vouchers,
-          soldSeats,
-          maintSeats
-        })
-      );
-    } catch {}
-  }, [users, movies, showtimes, bookings, fnb, vouchers, soldSeats, maintSeats]);
+    let mounted = true;
+
+    Promise.all([
+      authApi.getUsers(),
+      movieApi.getAdminMovies(),
+      cinemaApi.getAdminShowtimes(),
+      bookingApi.getAdminBookings(),
+      concessionApi.getAdminFnb(),
+      promotionApi.getPromotions()
+    ])
+      .then(([u, m, s, b, f, v]) => {
+        if (!mounted) return;
+        setUsers(u);
+        setMovies(m);
+
+        // Enrich showtimes with movie title if available
+        const enrichedShowtimes = s.map((st) => {
+          const match = m.find((mv) => st.movieTitle.includes(mv.id));
+          return match ? { ...st, movieTitle: match.title } : st;
+        });
+        setShowtimes(enrichedShowtimes);
+        setBookings(b);
+        setFnb(f);
+        setVouchers(v);
+      })
+      .catch((err) => {
+        console.error('Error fetching admin data from backend:', err);
+      });
+
+    // Seat availability for room inspection (showtime #1)
+    const getSeatCode = (seatId: number) => {
+      const rowIdx = Math.floor((seatId - 1) / 10);
+      const col = ((seatId - 1) % 10) + 1;
+      const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      return `${rows[rowIdx] || 'A'}${col}`;
+    };
+
+    bookingApi
+      .getSeatAvailability(1)
+      .then((seats) => {
+        if (!mounted || !seats || seats.length === 0) return;
+        const sold = seats
+          .filter((s) => s.status === 'Held' || s.status === 'Booked')
+          .map((s) => getSeatCode(s.seatId));
+        const maint = seats
+          .filter((s) => s.status === 'Maintenance')
+          .map((s) => getSeatCode(s.seatId));
+        setSoldSeats(sold);
+        setMaintSeats(maint);
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const switchModule = useCallback((mod: AdminModuleType) => {
     setCurrentModule(mod);
@@ -215,220 +170,425 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   // CRUD User
-  const saveUser = useCallback((data: Partial<AdminUser>) => {
-    if (data.id) {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === data.id ? { ...u, ...(data as AdminUser) } : u))
-      );
-      showToast('Đã cập nhật thông tin người dùng thành công!', 'success');
-    } else {
-      const newUser: AdminUser = {
-        id: 'u_' + Date.now(),
-        name: data.name || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        role: data.role || 'Thành viên',
-        points: Number(data.points) || 150,
-        joined: new Date().toLocaleDateString('vi-VN'),
-        status: data.status || 'active'
-      };
-      setUsers((prev) => [newUser, ...prev]);
-      showToast('Đã thêm người dùng mới thành công!', 'success');
-    }
-    setUserModal({ isOpen: false, editingUser: null });
-  }, [showToast]);
-
-  const deleteUser = useCallback((id: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    showToast('Đã xóa người dùng khỏi hệ thống.', 'info');
-  }, [showToast]);
-
-  const toggleUserLock = useCallback((id: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === id) {
-          const nextStatus = u.status === 'active' ? 'locked' : 'active';
-          return { ...u, status: nextStatus };
+  const saveUser = useCallback(
+    async (data: Partial<AdminUser>) => {
+      if (data.id) {
+        try {
+          await authApi.updateUser(data.id, {
+            displayName: data.name || '',
+            phoneNumber: data.phone,
+            role:
+              data.role === 'Quản trị viên'
+                ? 'Admin'
+                : data.role === 'Nhân viên soát vé'
+                ? 'Staff'
+                : data.role === 'Khách hàng VIP'
+                ? 'VIP'
+                : 'Customer',
+            points: data.points
+          });
+          setUsers((prev) =>
+            prev.map((u) => (u.id === data.id ? { ...u, ...(data as AdminUser) } : u))
+          );
+          showToast('Đã cập nhật thông tin người dùng thành công!', 'success');
+        } catch {
+          showToast('Lỗi khi cập nhật người dùng.', 'error');
         }
-        return u;
-      })
-    );
-    showToast('Đã cập nhật trạng thái tài khoản.', 'info');
-  }, [showToast]);
+      } else {
+        try {
+          const created = await authApi.createUser({
+            displayName: data.name || 'Người dùng',
+            email: data.email || `user${Date.now()}@cineverse.vn`,
+            password: 'Password@123',
+            phoneNumber: data.phone || '0988123456',
+            role:
+              data.role === 'Quản trị viên'
+                ? 'Admin'
+                : data.role === 'Nhân viên soát vé'
+                ? 'Staff'
+                : data.role === 'Khách hàng VIP'
+                ? 'VIP'
+                : 'Customer',
+            points: Number(data.points) || 150
+          });
+          const newUser: AdminUser = {
+            id: created.id,
+            name: created.displayName,
+            email: created.email,
+            phone: created.phoneNumber || '0988123456',
+            role: data.role || 'Thành viên',
+            points: created.points || 150,
+            joined: new Date().toLocaleDateString('vi-VN'),
+            status: created.status || 'active'
+          };
+          setUsers((prev) => [newUser, ...prev]);
+          showToast('Đã thêm người dùng mới thành công!', 'success');
+        } catch {
+          showToast('Lỗi khi thêm người dùng mới.', 'error');
+        }
+      }
+      setUserModal({ isOpen: false, editingUser: null });
+    },
+    [showToast]
+  );
+
+  const deleteUser = useCallback(
+    async (id: string) => {
+      try {
+        await authApi.deleteUser(id);
+        setUsers((prev) => prev.filter((u) => u.id !== id));
+        showToast('Đã xóa người dùng khỏi hệ thống.', 'info');
+      } catch {
+        showToast('Lỗi khi xóa người dùng.', 'error');
+      }
+    },
+    [showToast]
+  );
+
+  const toggleUserLock = useCallback(
+    async (id: string) => {
+      const target = users.find((u) => u.id === id);
+      if (!target) return;
+      const nextStatus = target.status === 'active' ? 'locked' : 'active';
+      try {
+        await authApi.updateUserStatus(id, nextStatus);
+        setUsers((prev) =>
+          prev.map((u) => (u.id === id ? { ...u, status: nextStatus } : u))
+        );
+        showToast(
+          `Đã ${nextStatus === 'locked' ? 'khóa' : 'mở khóa'} tài khoản người dùng.`,
+          'info'
+        );
+      } catch {
+        showToast('Lỗi khi cập nhật trạng thái tài khoản.', 'error');
+      }
+    },
+    [users, showToast]
+  );
 
   // CRUD Movie
-  const saveMovie = useCallback((data: Partial<AdminMovie>) => {
-    if (data.id) {
-      setMovies((prev) =>
-        prev.map((m) => (m.id === data.id ? { ...m, ...(data as AdminMovie) } : m))
-      );
-      showToast('Đã cập nhật thông tin phim!', 'success');
-    } else {
-      const newMovie: AdminMovie = {
-        id: 'm_' + Date.now(),
-        title: data.title || '',
-        director: data.director || '',
-        genre: data.genre || 'Hành Động',
-        duration: data.duration || '120 phút',
-        age: data.age || 'C16',
-        rating: Number(data.rating) || 9.0,
-        basePrice: Number(data.basePrice) || 95000,
-        status: data.status || 'showing',
-        poster: data.poster || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=600&q=80'
-      };
-      setMovies((prev) => [newMovie, ...prev]);
-      showToast('Đã phát hành phim mới vào danh mục!', 'success');
-    }
-    setMovieModal({ isOpen: false, editingMovie: null });
-  }, [showToast]);
+  const saveMovie = useCallback(
+    async (data: Partial<AdminMovie>) => {
+      if (data.id) {
+        try {
+          await movieApi.updateMovie(data.id, data);
+          setMovies((prev) =>
+            prev.map((m) => (m.id === data.id ? { ...m, ...(data as AdminMovie) } : m))
+          );
+          showToast('Đã cập nhật thông tin phim!', 'success');
+        } catch {
+          showToast('Lỗi khi cập nhật phim.', 'error');
+        }
+      } else {
+        try {
+          const created = await movieApi.createMovie(data);
+          const ageVal: 'P' | 'C13' | 'C16' | 'C18' =
+            (created.ageRating as any) || data.age || 'C16';
+          const newMovie: AdminMovie = {
+            id: created.id.toString(),
+            title: created.title,
+            director: created.director || data.director || '',
+            genre: created.genre,
+            duration: `${created.durationMinutes} phút`,
+            age: ageVal,
+            rating: created.rating ?? data.rating ?? 9.0,
+            basePrice: Number(data.basePrice) || 95000,
+            status: data.status || 'showing',
+            poster: created.posterUrl || data.poster || ''
+          };
+          setMovies((prev) => [newMovie, ...prev]);
+          showToast('Đã phát hành phim mới vào danh mục!', 'success');
+        } catch {
+          showToast('Lỗi khi phát hành phim mới.', 'error');
+        }
+      }
+      setMovieModal({ isOpen: false, editingMovie: null });
+    },
+    [showToast]
+  );
 
-  const deleteMovie = useCallback((id: string) => {
-    setMovies((prev) => prev.filter((m) => m.id !== id));
-    showToast('Đã xóa phim khỏi danh mục.', 'info');
-  }, [showToast]);
+  const deleteMovie = useCallback(
+    async (id: string) => {
+      try {
+        await movieApi.deleteMovie(id);
+        setMovies((prev) => prev.filter((m) => m.id !== id));
+        showToast('Đã xóa phim khỏi danh mục.', 'info');
+      } catch {
+        showToast('Lỗi khi xóa phim.', 'error');
+      }
+    },
+    [showToast]
+  );
 
   // Showtime & Seats
-  const createShowtime = useCallback((data: Omit<AdminShowtime, 'id'>) => {
-    const newSt: AdminShowtime = {
-      id: 'st_' + Date.now(),
-      ...data
-    };
-    setShowtimes((prev) => [newSt, ...prev]);
-    showToast(`Đã tạo suất chiếu mới: ${data.movieTitle} (${data.time})`, 'success');
-  }, [showToast]);
+  const createShowtime = useCallback(
+    async (data: Omit<AdminShowtime, 'id'>) => {
+      const matchedMovie = movies.find((m) => m.title === data.movieTitle) || movies[0];
+      const movieId = matchedMovie ? parseInt(matchedMovie.id, 10) : 1;
+      const screenId = data.room.includes('02') ? 2 : data.room.includes('Gold') ? 3 : 1;
+      const startTime = `${data.date}T${data.time}:00Z`;
+      const endTime = `${data.date}T${(parseInt(data.time.split(':')[0], 10) + 2)
+        .toString()
+        .padStart(2, '0')}:${data.time.split(':')[1]}:00Z`;
 
-  const deleteShowtime = useCallback((id: string) => {
-    setShowtimes((prev) => prev.filter((s) => s.id !== id));
-    showToast('Đã hủy suất chiếu thành công.', 'info');
-  }, [showToast]);
-
-  const toggleSeatMaintenance = useCallback((code: string) => {
-    setMaintSeats((prevMaint) => {
-      const isMaint = prevMaint.includes(code);
-      if (isMaint) {
-        // From maint -> move to sold
-        setSoldSeats((prevSold) => [...prevSold.filter((s) => s !== code), code]);
-        return prevMaint.filter((s) => s !== code);
-      } else {
-        // If it was sold, clear from sold and leave open
-        setSoldSeats((prevSold) => {
-          const isSold = prevSold.includes(code);
-          if (isSold) {
-            return prevSold.filter((s) => s !== code);
-          }
-          return prevSold;
+      try {
+        const created = await cinemaApi.createShowtime({
+          movieId,
+          screenId,
+          startTime,
+          endTime,
+          basePrice: 95000
         });
-        return [...prevMaint, code];
-      }
-    });
-  }, []);
 
-  const unlockAllMaintenanceSeats = useCallback(() => {
+        const newSt: AdminShowtime = {
+          id: created.id.toString(),
+          movieTitle: data.movieTitle,
+          room: data.room,
+          format: data.format,
+          time: data.time,
+          date: data.date
+        };
+        setShowtimes((prev) => [newSt, ...prev]);
+        showToast(`Đã tạo suất chiếu mới: ${data.movieTitle} (${data.time})`, 'success');
+      } catch {
+        showToast('Lỗi khi tạo suất chiếu.', 'error');
+      }
+    },
+    [movies, showToast]
+  );
+
+  const deleteShowtime = useCallback(
+    async (id: string) => {
+      try {
+        await cinemaApi.deleteShowtime(id);
+        setShowtimes((prev) => prev.filter((s) => s.id !== id));
+        showToast('Đã hủy suất chiếu thành công.', 'info');
+      } catch {
+        showToast('Lỗi khi hủy suất chiếu.', 'error');
+      }
+    },
+    [showToast]
+  );
+
+  const toggleSeatMaintenance = useCallback(
+    async (code: string) => {
+      const showtimeId = showtimes.length > 0 ? parseInt(showtimes[0].id, 10) : 1;
+      const isMaint = maintSeats.includes(code);
+      const seatIdMatch = code.match(/^[A-G](\d+)$/);
+      const seatNum = seatIdMatch ? parseInt(seatIdMatch[1], 10) : 1;
+      const rowOffset = (code.charCodeAt(0) - 65) * 10;
+      const seatId = rowOffset + seatNum;
+
+      try {
+        await bookingApi.toggleSeatMaintenance(showtimeId, seatId, !isMaint);
+        setMaintSeats((prev) =>
+          isMaint ? prev.filter((s) => s !== code) : [...prev, code]
+        );
+        showToast(`Đã ${isMaint ? 'mở khóa' : 'khóa bảo trì'} ghế ${code}.`, 'info');
+      } catch {
+        setMaintSeats((prev) =>
+          isMaint ? prev.filter((s) => s !== code) : [...prev, code]
+        );
+      }
+    },
+    [showtimes, maintSeats, showToast]
+  );
+
+  const unlockAllMaintenanceSeats = useCallback(async () => {
+    const showtimeId = showtimes.length > 0 ? parseInt(showtimes[0].id, 10) : 1;
+    try {
+      await bookingApi.unlockAllMaintenance(showtimeId);
+    } catch {}
     setMaintSeats([]);
     showToast('Đã mở khóa bảo trì tất cả các ghế phòng chiếu!', 'success');
-  }, [showToast]);
+  }, [showtimes, showToast]);
 
   // Bookings
-  const checkInBooking = useCallback((code: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.code === code ? { ...b, status: 'checked-in' } : b))
-    );
-    showToast(`Check-in thành công mã vé ${code}! Cho phép khách vào phòng chiếu.`, 'success');
-  }, [showToast]);
+  const checkInBooking = useCallback(
+    async (code: string) => {
+      try {
+        const res = await bookingApi.checkInTicket(code);
+        setBookings((prev) =>
+          prev.map((b) => (b.code === code ? { ...b, status: 'checked-in' } : b))
+        );
+        showToast(
+          `Check-in thành công mã vé ${code}! Khách: ${res.customerName} - Ghế: ${res.seatNumbers.join(', ')}.`,
+          'success'
+        );
+      } catch (err: any) {
+        const msg = err.response?.data?.message || err.message || 'Lỗi check-in vé';
+        showToast(msg, 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const cancelBooking = useCallback((code: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.code === code ? { ...b, status: 'cancelled' } : b))
-    );
-    showToast(`Đã hủy đơn vé ${code}.`, 'info');
-  }, [showToast]);
+  const cancelBooking = useCallback(
+    async (code: string) => {
+      setBookings((prev) =>
+        prev.map((b) => (b.code === code ? { ...b, status: 'cancelled' } : b))
+      );
+      showToast(`Đã hủy đơn vé ${code}.`, 'info');
+    },
+    [showToast]
+  );
 
   // FNB & Vouchers
-  const addFnb = useCallback((name: string, price: number, desc: string) => {
-    const newItem: AdminFnb = {
-      id: 'cb_' + Date.now(),
-      name,
-      price,
-      desc,
-      inStock: true
-    };
-    setFnb((prev) => [...prev, newItem]);
-    showToast(`Đã thêm combo bắp nước: ${name}`, 'success');
-  }, [showToast]);
+  const addFnb = useCallback(
+    async (name: string, price: number, desc: string) => {
+      try {
+        const newItem = await concessionApi.createConcession({
+          name,
+          description: desc,
+          price,
+          inStock: true
+        });
+        setFnb((prev) => [...prev, newItem]);
+        showToast(`Đã thêm combo bắp nước: ${name}`, 'success');
+      } catch {
+        showToast('Lỗi khi thêm combo bắp nước.', 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const toggleFnbStock = useCallback((id: string) => {
-    setFnb((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, inStock: !item.inStock } : item))
-    );
-  }, []);
+  const toggleFnbStock = useCallback(
+    async (id: string) => {
+      try {
+        const updated = await concessionApi.toggleStock(id);
+        setFnb((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, inStock: updated.inStock } : item
+          )
+        );
+        showToast('Đã cập nhật trạng thái kho bắp nước.', 'info');
+      } catch {
+        showToast('Lỗi khi cập nhật tồn kho.', 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const deleteFnb = useCallback((id: string) => {
-    setFnb((prev) => prev.filter((item) => item.id !== id));
-    showToast('Đã xóa combo bắp nước.', 'info');
-  }, [showToast]);
+  const deleteFnb = useCallback(
+    async (id: string) => {
+      try {
+        await concessionApi.deleteConcession(id);
+        setFnb((prev) => prev.filter((item) => item.id !== id));
+        showToast('Đã xóa combo bắp nước.', 'info');
+      } catch {
+        showToast('Lỗi khi xóa combo bắp nước.', 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const addVoucher = useCallback((code: string, title: string, type: 'fixed' | 'percent', value: number) => {
-    const newVc: AdminVoucher = {
-      code: code.toUpperCase().trim(),
-      title,
-      type,
-      value,
-      active: true
-    };
-    setVouchers((prev) => [...prev, newVc]);
-    showToast(`Đã phát hành mã giảm giá ${newVc.code}`, 'success');
-  }, [showToast]);
+  const addVoucher = useCallback(
+    async (
+      code: string,
+      title: string,
+      type: 'fixed' | 'percent',
+      value: number
+    ) => {
+      try {
+        const newVc = await promotionApi.createPromotion({
+          code: code.toUpperCase().trim(),
+          title,
+          discountType: type,
+          discountValue: value,
+          isActive: true
+        });
+        setVouchers((prev) => [...prev, newVc]);
+        showToast(`Đã phát hành mã giảm giá ${newVc.code}`, 'success');
+      } catch {
+        showToast('Lỗi khi tạo mã giảm giá.', 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const toggleVoucherActive = useCallback((code: string) => {
-    setVouchers((prev) =>
-      prev.map((vc) => (vc.code === code ? { ...vc, active: !vc.active } : vc))
-    );
-  }, []);
+  const toggleVoucherActive = useCallback(
+    async (code: string) => {
+      try {
+        const updated = await promotionApi.togglePromotion(code);
+        setVouchers((prev) =>
+          prev.map((vc) => (vc.code === code ? { ...vc, active: updated.active } : vc))
+        );
+        showToast(`Đã cập nhật trạng thái voucher ${code}.`, 'info');
+      } catch {
+        showToast('Lỗi khi cập nhật trạng thái voucher.', 'error');
+      }
+    },
+    [showToast]
+  );
 
-  const deleteVoucher = useCallback((code: string) => {
-    setVouchers((prev) => prev.filter((vc) => vc.code !== code));
-    showToast('Đã xóa voucher.', 'info');
-  }, [showToast]);
+  const deleteVoucher = useCallback(
+    async (code: string) => {
+      try {
+        await promotionApi.deletePromotion(code);
+        setVouchers((prev) => prev.filter((vc) => vc.code !== code));
+        showToast('Đã xóa voucher khỏi hệ thống.', 'info');
+      } catch {
+        showToast('Lỗi khi xóa voucher.', 'error');
+      }
+    },
+    [showToast]
+  );
 
   // Simulation
-  const simulateBooking = useCallback(() => {
-    const randomCode = 'CV-' + Math.floor(100000 + Math.random() * 900000);
-    const movie = movies[Math.floor(Math.random() * movies.length)] || movies[0];
-    const user = users[Math.floor(Math.random() * users.length)] || users[0];
-    const rows = ['B', 'C', 'D', 'E', 'F'];
-    const row = rows[Math.floor(Math.random() * rows.length)];
-    const seat1 = `${row}${Math.floor(Math.random() * 5 + 1)}`;
-    const seat2 = `${row}${Math.floor(Math.random() * 4 + 6)}`;
+  const simulateBooking = useCallback(async () => {
+    try {
+      const rows = ['B', 'C', 'D', 'E'];
+      const r = rows[Math.floor(Math.random() * rows.length)];
+      const seat1 = `${r}5`;
+      const seat2 = `${r}6`;
+      const user = users[0];
+      const customerName = user ? user.name : 'Khách vãng lai';
+      const customerPhone = user ? user.phone : '0988123456';
 
-    const newBooking: AdminBooking = {
-      code: randomCode,
-      customerName: user.name,
-      customerPhone: user.phone,
-      movieTitle: movie.title,
-      room: 'Phòng IMAX 01',
-      datetime: '20:15 - Hôm nay',
-      seats: [seat1, seat2],
-      combos: '1x Couple Combo',
-      totalPaid: movie.basePrice * 2 + 119000,
-      paymentMethod: 'Ví MoMo',
-      status: 'active'
-    };
+      const holdRes = await bookingApi.holdSeats({
+        showtimeId: 1,
+        seatIds: [15, 16],
+        concessions: [{ concessionId: 1, quantity: 1 }],
+        promoCode: 'CINEVERSE2025',
+        customerName,
+        customerPhone,
+        paymentMethod: 'MoMo'
+      });
 
-    setBookings((prev) => [newBooking, ...prev]);
-    setSoldSeats((prev) => [...prev, seat1, seat2]);
-    showToast(`[Giả lập] Khách hàng ${user.name} vừa đặt thành công đơn vé ${randomCode}!`, 'success');
-  }, [movies, users, showToast]);
+      const confirmRes = await bookingApi.confirmBooking(holdRes.bookingId);
+      showToast(
+        `[Giả lập] Đặt vé thành công mã ${confirmRes.bookingCode}! Cho khách ${customerName}`,
+        'success'
+      );
 
-  const resetDatabase = useCallback(() => {
-    setUsers(JSON.parse(JSON.stringify(INITIAL_ADMIN_USERS)));
-    setMovies(JSON.parse(JSON.stringify(INITIAL_ADMIN_MOVIES)));
-    setShowtimes(JSON.parse(JSON.stringify(INITIAL_ADMIN_SHOWTIMES)));
-    setBookings(JSON.parse(JSON.stringify(INITIAL_ADMIN_BOOKINGS)));
-    setFnb(JSON.parse(JSON.stringify(INITIAL_ADMIN_FNB)));
-    setVouchers(JSON.parse(JSON.stringify(INITIAL_ADMIN_VOUCHERS)));
-    setSoldSeats([...INITIAL_ADMIN_SOLD_SEATS]);
-    setMaintSeats([...INITIAL_ADMIN_MAINT_SEATS]);
-    showToast('Đã khôi phục toàn bộ dữ liệu mẫu mặc định!', 'info');
+      const updatedBookings = await bookingApi.getAdminBookings();
+      setBookings(updatedBookings);
+      setSoldSeats((prev) => [...prev, seat1, seat2]);
+    } catch (err: any) {
+      showToast('Lỗi mô phỏng đặt vé: ' + (err.message || 'Lỗi server'), 'error');
+    }
+  }, [users, showToast]);
+
+  const resetDatabase = useCallback(async () => {
+    try {
+      const [u, m, s, b, f, v] = await Promise.all([
+        authApi.getUsers(),
+        movieApi.getAdminMovies(),
+        cinemaApi.getAdminShowtimes(),
+        bookingApi.getAdminBookings(),
+        concessionApi.getAdminFnb(),
+        promotionApi.getPromotions()
+      ]);
+      setUsers(u);
+      setMovies(m);
+      setShowtimes(s);
+      setBookings(b);
+      setFnb(f);
+      setVouchers(v);
+      showToast('Đã đồng bộ lại toàn bộ dữ liệu mới nhất từ backend!', 'info');
+    } catch {
+      showToast('Lỗi khi tải lại dữ liệu từ backend.', 'error');
+    }
   }, [showToast]);
 
   // Modals
@@ -449,6 +609,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const openTicketModal = useCallback((ticket: AdminBooking) => {
+    setUserModal((prev) => ({ ...prev })); // noop
     setTicketModal({ isOpen: true, ticket });
   }, []);
 
@@ -467,7 +628,10 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const totalSeats = 75; // 7 rows x 10 + 5 doubles
   const occupiedSeatsCount = soldSeats.length;
-  const occupancyPercent = Math.min(100, Math.round((occupiedSeatsCount / totalSeats) * 100));
+  const occupancyPercent = Math.min(
+    100,
+    Math.round((occupiedSeatsCount / totalSeats) * 100)
+  );
 
   return (
     <AdminContext.Provider
@@ -536,4 +700,3 @@ export const useAdmin = () => {
   }
   return context;
 };
-

@@ -13,6 +13,7 @@ public class SeatBookingValidatorTests
         Assert.True(SeatBookingValidator.CanHold(ShowtimeSeatStatus.Available));
         Assert.False(SeatBookingValidator.CanHold(ShowtimeSeatStatus.Held));
         Assert.False(SeatBookingValidator.CanHold(ShowtimeSeatStatus.Booked));
+        Assert.False(SeatBookingValidator.CanHold(ShowtimeSeatStatus.Maintenance));
     }
 
     [Fact]
@@ -61,6 +62,7 @@ public class SeatBookingValidatorTests
     [InlineData(BookingStatus.Confirmed, true)]
     [InlineData(BookingStatus.Cancelled, false)]
     [InlineData(BookingStatus.Expired, false)]
+    [InlineData(BookingStatus.CheckedIn, false)]
     public void CanCancel_ShouldOnlyAllowPendingOrConfirmedBookings(BookingStatus status, bool expected)
     {
         Assert.Equal(expected, BookingRules.CanCancel(status));

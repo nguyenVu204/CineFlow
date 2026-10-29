@@ -9,7 +9,15 @@ public record MovieRequest(
     DateTime ReleaseDate,
     string PosterUrl,
     string Genre,
-    MovieStatus Status);
+    MovieStatus Status,
+    string? OriginalTitle = null,
+    double? Rating = null,
+    string? AgeRating = null,
+    string? Director = null,
+    string? Cast = null,
+    string? Formats = null,
+    string? BackdropUrl = null,
+    string? TrailerUrl = null);
 
 public record PagedMoviesResponse(
     int Total,

@@ -41,7 +41,7 @@ public class MoviesController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(m => m.Title.Contains(search) || m.Description.Contains(search));
+            query = query.Where(m => m.Title.Contains(search) || m.Description.Contains(search) || m.OriginalTitle.Contains(search));
         }
 
         if (!string.IsNullOrWhiteSpace(genre))
@@ -89,12 +89,20 @@ public class MoviesController : ControllerBase
         var movie = new MovieEntity
         {
             Title = request.Title.Trim(),
+            OriginalTitle = request.OriginalTitle?.Trim() ?? request.Title.Trim(),
             Description = request.Description.Trim(),
             DurationMinutes = request.DurationMinutes,
             ReleaseDate = request.ReleaseDate,
             PosterUrl = request.PosterUrl?.Trim() ?? string.Empty,
             Genre = request.Genre.Trim(),
             Status = request.Status,
+            Rating = request.Rating ?? 9.0,
+            AgeRating = string.IsNullOrWhiteSpace(request.AgeRating) ? "C16" : request.AgeRating.Trim(),
+            Director = request.Director?.Trim() ?? string.Empty,
+            Cast = request.Cast?.Trim() ?? string.Empty,
+            Formats = string.IsNullOrWhiteSpace(request.Formats) ? "2D Phụ Đề,IMAX Laser" : request.Formats.Trim(),
+            BackdropUrl = request.BackdropUrl?.Trim() ?? string.Empty,
+            TrailerUrl = request.TrailerUrl?.Trim() ?? string.Empty,
             CreatedAt = DateTime.UtcNow
         };
         _context.Movies.Add(movie);
@@ -119,12 +127,20 @@ public class MoviesController : ControllerBase
         }
 
         movie.Title = request.Title.Trim();
+        if (request.OriginalTitle != null) movie.OriginalTitle = request.OriginalTitle.Trim();
         movie.Description = request.Description.Trim();
         movie.DurationMinutes = request.DurationMinutes;
         movie.ReleaseDate = request.ReleaseDate;
         movie.PosterUrl = request.PosterUrl?.Trim() ?? string.Empty;
         movie.Genre = request.Genre.Trim();
         movie.Status = request.Status;
+        if (request.Rating.HasValue) movie.Rating = request.Rating.Value;
+        if (!string.IsNullOrWhiteSpace(request.AgeRating)) movie.AgeRating = request.AgeRating.Trim();
+        if (request.Director != null) movie.Director = request.Director.Trim();
+        if (request.Cast != null) movie.Cast = request.Cast.Trim();
+        if (!string.IsNullOrWhiteSpace(request.Formats)) movie.Formats = request.Formats.Trim();
+        if (request.BackdropUrl != null) movie.BackdropUrl = request.BackdropUrl.Trim();
+        if (request.TrailerUrl != null) movie.TrailerUrl = request.TrailerUrl.Trim();
 
         await _context.SaveChangesAsync();
         return NoContent();

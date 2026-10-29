@@ -2,7 +2,11 @@ export interface UserResponse {
   id: string;
   email: string;
   displayName: string;
+  phoneNumber?: string;
   roles: string[];
+  points: number;
+  status: 'active' | 'locked';
+  joinedAt: string;
 }
 
 export interface AuthResponse {
@@ -21,6 +25,7 @@ export interface RegisterRequest {
   email: string;
   password: string;
   displayName: string;
+  phoneNumber?: string;
 }
 
 export interface CurrentUser {
@@ -30,6 +35,6 @@ export interface CurrentUser {
   phone?: string;
   points: number;
   roles: string[];
+  status?: 'active' | 'locked';
   token: string;
 }
-

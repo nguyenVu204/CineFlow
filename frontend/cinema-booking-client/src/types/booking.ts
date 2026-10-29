@@ -1,9 +1,20 @@
 import { MovieItem } from './movie';
 import { CinemaItem } from './cinema';
 
+export interface HoldConcessionItem {
+  concessionId: number;
+  quantity: number;
+}
+
 export interface HoldSeatRequest {
   showtimeId: number;
   seatIds: number[];
+  concessions?: HoldConcessionItem[];
+  customerName?: string;
+  customerPhone?: string;
+  paymentMethod?: string;
+  promoCode?: string;
+  discountAmount?: number;
 }
 
 export interface HoldSeatResponse {
@@ -19,7 +30,7 @@ export interface HoldSeatResponse {
 
 export interface SeatAvailabilityResponse {
   seatId: number;
-  status: 'Available' | 'Held' | 'Booked';
+  status: 'Available' | 'Held' | 'Booked' | 'Maintenance' | string;
   price: number;
   holdExpiresAt?: string;
 }
@@ -28,6 +39,13 @@ export interface BookingItemResponse {
   seatId: number;
   seatNumber: string;
   price: number;
+}
+
+export interface BookingConcessionResponse {
+  concessionId: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
 }
 
 export interface BookingDetailsResponse {
@@ -40,6 +58,13 @@ export interface BookingDetailsResponse {
   createdAt: string;
   expiresAt: string;
   items: BookingItemResponse[];
+  concessions?: BookingConcessionResponse[];
+  customerName?: string;
+  customerPhone?: string;
+  paymentMethod?: string;
+  promoCode?: string;
+  discountAmount?: number;
+  checkedInAt?: string;
 }
 
 export interface SelectedSeatInfo {
@@ -64,7 +89,16 @@ export interface TicketRecord {
   combos: Record<string, number>;
   totalPaid: number;
   paymentMethod: string;
-  status: 'valid' | 'cancelled';
+  status: 'valid' | 'cancelled' | 'checked-in';
   createdAt: string;
 }
 
+export interface CheckInTicketResponse {
+  success: boolean;
+  bookingCode: string;
+  checkedInAt?: string;
+  customerName: string;
+  customerPhone: string;
+  seatNumbers: string[];
+  message: string;
+}

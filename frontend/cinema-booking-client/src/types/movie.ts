@@ -3,12 +3,20 @@ export type MovieStatus = 'NowShowing' | 'ComingSoon' | 'Ended';
 export interface BackendMovie {
   id: number;
   title: string;
+  originalTitle?: string;
   description: string;
   durationMinutes: number;
   releaseDate: string;
   posterUrl: string;
   genre: string;
   status: number | MovieStatus;
+  rating?: number;
+  ageRating?: 'P' | 'C13' | 'C16' | 'C18';
+  director?: string;
+  cast?: string;
+  formats?: string;
+  backdropUrl?: string;
+  trailerUrl?: string;
   createdAt?: string;
 }
 
@@ -37,4 +45,3 @@ export interface MovieItem {
   synopsis: string;
   trailerUrl?: string;
 }
-

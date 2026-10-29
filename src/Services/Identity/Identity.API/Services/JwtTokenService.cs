@@ -41,10 +41,21 @@ public sealed class JwtTokenService(
             expires: expiresAt,
             signingCredentials: credentials);
 
+        var isLocked = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
+        var userResponse = new UserResponse(
+            user.Id,
+            user.Email ?? string.Empty,
+            user.DisplayName,
+            user.PhoneNumber,
+            roles.ToArray(),
+            user.Points,
+            isLocked ? "locked" : "active",
+            user.JoinedAt);
+
         return new AuthResponse(
             new JwtSecurityTokenHandler().WriteToken(token),
             "Bearer",
             expiresAt,
-            new UserResponse(user.Id, user.Email ?? string.Empty, user.DisplayName, roles.ToArray()));
+            userResponse);
     }
 }

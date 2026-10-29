@@ -302,7 +302,7 @@ public class ShowtimesController : ControllerBase
             return BadRequest(new { message = "MovieId and ScreenId must be greater than zero when provided." });
         }
 
-        var query = _context.Showtimes.AsQueryable();
+        var query = _context.Showtimes.Include(x => x.Screen).AsQueryable();
 
         if (movieId.HasValue)
         {
@@ -321,7 +321,7 @@ public class ShowtimesController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ShowtimeEntity>> GetShowtime(int id)
     {
-        var showtime = await _context.Showtimes.FindAsync(id);
+        var showtime = await _context.Showtimes.Include(x => x.Screen).FirstOrDefaultAsync(x => x.Id == id);
         if (showtime is null)
         {
             return NotFound();
@@ -462,6 +462,21 @@ public class ShowtimesController : ControllerBase
 
         await _context.SaveChangesAsync();
         await transaction.CommitAsync();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteShowtime(int id)
+    {
+        var showtime = await _context.Showtimes.FindAsync(id);
+        if (showtime is null)
+        {
+            return NotFound();
+        }
+
+        _context.Showtimes.Remove(showtime);
+        await _context.SaveChangesAsync();
         return NoContent();
     }
 

@@ -13,7 +13,7 @@ interface AuthContextValue {
   logout: () => void;
   openAuthModal: (tab?: 'login' | 'register') => void;
   closeAuthModal: () => void;
-  addPoints: (amount: number) => void;
+  addPoints: (amount: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -37,6 +37,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Refresh profile on mount if token exists
+  useEffect(() => {
+    const token = localStorage.getItem('cineverse_token');
+    if (token) {
+      authApi.getMe().then((me) => {
+        setUser((prev) => prev ? {
+          ...prev,
+          name: me.displayName,
+          points: me.points,
+          phone: me.phoneNumber || prev.phone,
+          roles: me.roles
+        } : {
+          id: me.id,
+          email: me.email,
+          name: me.displayName,
+          phone: me.phoneNumber,
+          points: me.points,
+          roles: me.roles,
+          status: me.status,
+          token
+        });
+      }).catch(() => {
+        // token expired
+      });
+    }
+  }, []);
+
   const openAuthModal = (tab: 'login' | 'register' = 'login') => {
     setAuthModalTab(tab);
     setIsAuthModalOpen(true);
@@ -48,14 +75,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (data: LoginRequest): Promise<boolean> => {
     try {
-      // Try backend first
       const res = await authApi.login(data);
       const loggedUser: CurrentUser = {
         id: res.user.id,
         email: res.user.email,
         name: res.user.displayName,
-        points: 1250,
+        phone: res.user.phoneNumber,
+        points: res.user.points,
         roles: res.user.roles || ['Customer'],
+        status: res.user.status,
         token: res.accessToken
       };
       localStorage.setItem('cineverse_token', res.accessToken);
@@ -63,24 +91,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       showToast(`Đăng nhập thành công! Chào mừng ${loggedUser.name}`, 'success');
       closeAuthModal();
       return true;
-    } catch {
-      // Backend not running / offline -> Fallback mock auth
-      if (data.email && data.password.length >= 6) {
-        const fallbackUser: CurrentUser = {
-          id: 'user_' + Date.now(),
-          email: data.email,
-          name: data.email.split('@')[0].toUpperCase(),
-          points: 1250,
-          roles: ['Customer'],
-          token: 'mock_jwt_token_' + Date.now()
-        };
-        localStorage.setItem('cineverse_token', fallbackUser.token);
-        setUser(fallbackUser);
-        showToast(`Đăng nhập thành công (Demo Mode)! Chào mừng ${fallbackUser.name}`, 'success');
-        closeAuthModal();
-        return true;
-      }
-      showToast('Email hoặc mật khẩu không chính xác!', 'error');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Email hoặc mật khẩu không chính xác!';
+      showToast(msg, 'error');
       return false;
     }
   };
@@ -92,33 +105,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: res.user.id,
         email: res.user.email,
         name: res.user.displayName,
-        points: 500,
+        phone: res.user.phoneNumber,
+        points: res.user.points,
         roles: res.user.roles || ['Customer'],
+        status: res.user.status,
         token: res.accessToken
       };
       localStorage.setItem('cineverse_token', res.accessToken);
       setUser(newUser);
-      showToast('Đăng ký tài khoản thành công! Bạn nhận được +500 điểm CINEVERSE Club.', 'success');
+      showToast(`Đăng ký tài khoản thành công! Bạn nhận được +${newUser.points} điểm CINEVERSE Club.`, 'success');
       closeAuthModal();
       return true;
-    } catch {
-      // Fallback mock
-      if (data.email && data.password.length >= 6 && data.displayName) {
-        const fallbackUser: CurrentUser = {
-          id: 'user_' + Date.now(),
-          email: data.email,
-          name: data.displayName,
-          points: 500,
-          roles: ['Customer'],
-          token: 'mock_jwt_token_' + Date.now()
-        };
-        localStorage.setItem('cineverse_token', fallbackUser.token);
-        setUser(fallbackUser);
-        showToast('Đăng ký tài khoản thành công! Bạn nhận được +500 điểm CINEVERSE Club.', 'success');
-        closeAuthModal();
-        return true;
-      }
-      showToast('Vui lòng kiểm tra lại thông tin đăng ký!', 'error');
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Đăng ký không thành công. Vui lòng kiểm tra lại thông tin!';
+      showToast(msg, 'error');
       return false;
     }
   };
@@ -130,9 +130,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     showToast('Đã đăng xuất tài khoản.', 'info');
   };
 
-  const addPoints = (amount: number) => {
+  const addPoints = async (amount: number) => {
     if (!user) return;
-    setUser({ ...user, points: user.points + amount });
+    try {
+      const updatedUser = await authApi.addPoints(amount);
+      setUser((prev) => prev ? { ...prev, points: updatedUser.points } : null);
+    } catch {
+      setUser((prev) => prev ? { ...prev, points: prev.points + amount } : null);
+    }
   };
 
   return (
@@ -162,4 +167,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

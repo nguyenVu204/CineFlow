@@ -166,10 +166,41 @@ public class BookingsController : ControllerBase
                 }
             }
 
-            if (seats.Any(x => x.Status == ShowtimeSeatStatus.Booked || x.Status == ShowtimeSeatStatus.Held))
+            if (seats.Any(x => x.Status == ShowtimeSeatStatus.Booked || x.Status == ShowtimeSeatStatus.Held || x.Status == ShowtimeSeatStatus.Maintenance))
             {
-                return Conflict(new { success = false, message = "One or more seats are already held or booked." });
+                return Conflict(new { success = false, message = "One or more seats are already held, booked, or under maintenance." });
             }
+
+            // Handle Concessions
+            var concessionItems = new List<BookingConcessionItem>();
+            decimal concessionsTotal = 0;
+            if (request.Concessions != null && request.Concessions.Count > 0)
+            {
+                var concessionIds = request.Concessions.Select(c => c.ConcessionId).Distinct().ToList();
+                var availableConcessions = await _context.Concessions
+                    .Where(c => concessionIds.Contains(c.Id))
+                    .ToDictionaryAsync(c => c.Id, cancellationToken);
+
+                foreach (var item in request.Concessions)
+                {
+                    if (availableConcessions.TryGetValue(item.ConcessionId, out var concession))
+                    {
+                        var itemTotal = concession.Price * item.Quantity;
+                        concessionsTotal += itemTotal;
+                        concessionItems.Add(new BookingConcessionItem
+                        {
+                            ConcessionId = concession.Id,
+                            ConcessionName = concession.Name,
+                            Quantity = item.Quantity,
+                            UnitPrice = concession.Price
+                        });
+                    }
+                }
+            }
+
+            var ticketTotal = seats.Sum(x => x.Price);
+            var discount = Math.Max(0, request.DiscountAmount);
+            var totalAmount = Math.Max(0, ticketTotal + concessionsTotal - discount);
 
             var holdExpiresAt = now.Add(HoldDuration);
             var holdToken = Guid.NewGuid().ToString("N");
@@ -178,7 +209,12 @@ public class BookingsController : ControllerBase
                 BookingCode = SeatBookingValidator.GenerateBookingCode(),
                 UserId = CurrentUserId(),
                 ShowtimeId = request.ShowtimeId,
-                TotalAmount = seats.Sum(x => x.Price),
+                TotalAmount = totalAmount,
+                DiscountAmount = discount,
+                CustomerName = request.CustomerName?.Trim() ?? string.Empty,
+                CustomerPhone = request.CustomerPhone?.Trim() ?? string.Empty,
+                PaymentMethod = request.PaymentMethod?.Trim() ?? "MOMO",
+                PromoCode = request.PromoCode?.Trim() ?? string.Empty,
                 Status = BookingStatus.Pending,
                 HoldToken = holdToken,
                 CreatedAt = now,
@@ -188,7 +224,8 @@ public class BookingsController : ControllerBase
                     SeatId = seat.SeatId,
                     SeatNumber = $"Seat {seat.SeatId}",
                     Price = seat.Price
-                }).ToList()
+                }).ToList(),
+                Concessions = concessionItems
             };
 
             _context.Bookings.Add(booking);
@@ -264,6 +301,158 @@ public class BookingsController : ControllerBase
         return Ok(seats);
     }
 
+    [HttpPut("showtimes/{showtimeId:int}/seats/{seatId:int}/maintenance")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ToggleSeatMaintenance(
+        int showtimeId,
+        int seatId,
+        [FromBody] SeatMaintenanceRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var seat = await _context.ShowtimeSeats
+            .FirstOrDefaultAsync(x => x.ShowtimeId == showtimeId && x.SeatId == seatId, cancellationToken);
+
+        if (seat is null)
+        {
+            return NotFound(new { message = "Seat not found in this showtime." });
+        }
+
+        if (seat.Status == ShowtimeSeatStatus.Booked)
+        {
+            return Conflict(new { message = "Cannot put a booked seat into maintenance." });
+        }
+
+        if (request is not null)
+        {
+            seat.Status = request.IsMaintenance ? ShowtimeSeatStatus.Maintenance : ShowtimeSeatStatus.Available;
+        }
+        else
+        {
+            seat.Status = seat.Status == ShowtimeSeatStatus.Maintenance
+                ? ShowtimeSeatStatus.Available
+                : ShowtimeSeatStatus.Maintenance;
+        }
+
+        if (seat.Status == ShowtimeSeatStatus.Available)
+        {
+            seat.HoldToken = null;
+            seat.HeldByUserId = null;
+            seat.HoldExpiresAt = null;
+            seat.BookingId = null;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return Ok(new
+        {
+            success = true,
+            showtimeId,
+            seatId,
+            status = seat.Status.ToString(),
+            isMaintenance = seat.Status == ShowtimeSeatStatus.Maintenance
+        });
+    }
+
+    [HttpPost("showtimes/{showtimeId:int}/seats/unlock-maintenance")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UnlockAllMaintenanceSeats(
+        int showtimeId,
+        CancellationToken cancellationToken)
+    {
+        var seats = await _context.ShowtimeSeats
+            .Where(x => x.ShowtimeId == showtimeId && x.Status == ShowtimeSeatStatus.Maintenance)
+            .ToListAsync(cancellationToken);
+
+        foreach (var seat in seats)
+        {
+            seat.Status = ShowtimeSeatStatus.Available;
+            seat.HoldToken = null;
+            seat.HeldByUserId = null;
+            seat.HoldExpiresAt = null;
+            seat.BookingId = null;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return Ok(new { success = true, unlockedCount = seats.Count });
+    }
+
+    [HttpPost("{code}/check-in")]
+    [Authorize(Roles = "Admin,Staff")]
+    public async Task<ActionResult<CheckInTicketResponse>> CheckInTicket(
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCode = code.Trim().ToUpperInvariant();
+        var booking = await _context.Bookings
+            .Include(x => x.Items)
+            .FirstOrDefaultAsync(x =>
+                x.BookingCode.ToUpper() == normalizedCode ||
+                x.CustomerPhone == normalizedCode ||
+                x.BookingCode.ToUpper().Contains(normalizedCode),
+                cancellationToken);
+
+        if (booking is null)
+        {
+            return NotFound(new CheckInTicketResponse(
+                false,
+                code,
+                null,
+                "",
+                "",
+                Array.Empty<string>(),
+                $"Không tìm thấy đơn vé nào khớp với mã hoặc SĐT '{code}'!"));
+        }
+
+        if (booking.Status == BookingStatus.CheckedIn)
+        {
+            return BadRequest(new CheckInTicketResponse(
+                false,
+                booking.BookingCode,
+                booking.CheckedInAt,
+                booking.CustomerName,
+                booking.CustomerPhone,
+                booking.Items.Select(x => x.SeatNumber).ToList(),
+                $"Vé {booking.BookingCode} này ĐÃ ĐƯỢC CHECK-IN trước đó rồi!"));
+        }
+
+        if (booking.Status == BookingStatus.Cancelled)
+        {
+            return BadRequest(new CheckInTicketResponse(
+                false,
+                booking.BookingCode,
+                null,
+                booking.CustomerName,
+                booking.CustomerPhone,
+                booking.Items.Select(x => x.SeatNumber).ToList(),
+                $"Vé {booking.BookingCode} này ĐÃ BỊ HỦY, không thể check-in!"));
+        }
+
+        if (booking.Status != BookingStatus.Confirmed)
+        {
+            return BadRequest(new CheckInTicketResponse(
+                false,
+                booking.BookingCode,
+                null,
+                booking.CustomerName,
+                booking.CustomerPhone,
+                booking.Items.Select(x => x.SeatNumber).ToList(),
+                $"Vé đang ở trạng thái {booking.Status}, chưa thể check-in!"));
+        }
+
+        booking.Status = BookingStatus.CheckedIn;
+        booking.CheckedInAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new CheckInTicketResponse(
+            true,
+            booking.BookingCode,
+            booking.CheckedInAt,
+            booking.CustomerName,
+            booking.CustomerPhone,
+            booking.Items.Select(x => x.SeatNumber).ToList(),
+            $"Xác thực và check-in vé {booking.BookingCode} thành công!"));
+    }
+
     [HttpGet("{id:int}")]
     public async Task<ActionResult<BookingDetailsResponse>> GetBooking(
         int id,
@@ -272,6 +461,7 @@ public class BookingsController : ControllerBase
         var booking = await _context.Bookings
             .AsNoTracking()
             .Include(x => x.Items)
+            .Include(x => x.Concessions)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
         if (booking is null || !IsBookingOwner(booking.UserId))
@@ -291,6 +481,7 @@ public class BookingsController : ControllerBase
         var bookings = await _context.Bookings
             .AsNoTracking()
             .Include(x => x.Items)
+            .Include(x => x.Concessions)
             .Where(x => x.UserId == userId)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
@@ -298,13 +489,17 @@ public class BookingsController : ControllerBase
         return Ok(bookings.Select(ToBookingDetails).ToList());
     }
 
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Staff")]
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<BookingDetailsResponse>>> GetBookings(
         [FromQuery] string? userId,
         CancellationToken cancellationToken)
     {
-        var query = _context.Bookings.AsNoTracking().Include(x => x.Items).AsQueryable();
+        var query = _context.Bookings.AsNoTracking()
+            .Include(x => x.Items)
+            .Include(x => x.Concessions)
+            .AsQueryable();
+
         if (!string.IsNullOrWhiteSpace(userId))
         {
             query = query.Where(x => x.UserId == userId.Trim());
@@ -314,6 +509,22 @@ public class BookingsController : ControllerBase
             .OrderByDescending(x => x.CreatedAt)
             .Take(500)
             .ToListAsync(cancellationToken);
+        return Ok(bookings.Select(ToBookingDetails).ToList());
+    }
+
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpGet("admin/all")]
+    public async Task<ActionResult<IReadOnlyCollection<BookingDetailsResponse>>> GetAllAdminBookings(
+        CancellationToken cancellationToken)
+    {
+        var bookings = await _context.Bookings
+            .AsNoTracking()
+            .Include(x => x.Items)
+            .Include(x => x.Concessions)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+
         return Ok(bookings.Select(ToBookingDetails).ToList());
     }
 
@@ -354,6 +565,7 @@ public class BookingsController : ControllerBase
             var initialBooking = await _context.Bookings
                 .AsNoTracking()
                 .Include(x => x.Items)
+                .Include(x => x.Concessions)
                 .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
             if (initialBooking is null)
@@ -393,6 +605,7 @@ public class BookingsController : ControllerBase
             await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
             var booking = await _context.Bookings
                 .Include(x => x.Items)
+                .Include(x => x.Concessions)
                 .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
             if (booking is null)
@@ -400,7 +613,7 @@ public class BookingsController : ControllerBase
                 return NotFound();
             }
 
-            if (booking.Status == BookingStatus.Confirmed)
+            if (booking.Status == BookingStatus.Confirmed || booking.Status == BookingStatus.CheckedIn)
             {
                 var alreadyConfirmed = JsonSerializer.Serialize(new
                 {
@@ -699,7 +912,7 @@ public class BookingsController : ControllerBase
 
     private bool IsBookingOwner(string userId)
     {
-        return User.IsInRole("Admin") || string.Equals(CurrentUserId(), userId, StringComparison.Ordinal);
+        return User.IsInRole("Admin") || User.IsInRole("Staff") || string.Equals(CurrentUserId(), userId, StringComparison.Ordinal);
     }
 
     private bool HasValidInternalServiceKey(string? suppliedKey)
@@ -738,6 +951,15 @@ public class BookingsController : ControllerBase
             booking.ExpiresAt,
             booking.Items
                 .Select(x => new BookingItemResponse(x.SeatId, x.SeatNumber, x.Price))
-                .ToList());
+                .ToList(),
+            booking.Concessions
+                .Select(x => new BookingConcessionResponse(x.ConcessionId, x.ConcessionName, x.Quantity, x.UnitPrice))
+                .ToList(),
+            booking.CustomerName,
+            booking.CustomerPhone,
+            booking.PaymentMethod,
+            booking.PromoCode,
+            booking.DiscountAmount,
+            booking.CheckedInAt);
     }
 }
