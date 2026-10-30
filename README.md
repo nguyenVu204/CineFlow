@@ -1,246 +1,219 @@
-﻿# Cinema Booking Microservices Demo
+# CineFlow — Nền tảng đặt vé xem phim
 
-This project is a lightweight cinema booking platform built as an intern-friendly .NET 8 microservices sample. It includes:
+CineFlow là ứng dụng đặt vé xem phim được xây dựng theo kiến trúc microservices. Người dùng có thể tìm phim, chọn rạp và suất chiếu, giữ ghế, hoàn tất đặt vé và xem lịch sử vé. Quản trị viên quản lý nội dung phim, rạp, phòng chiếu, ghế, suất chiếu và tài khoản.
 
-- Movie Service
-- Cinema Service
-- Booking Service
-- Identity Service (ASP.NET Core Identity + JWT)
-- YARP API Gateway
-- React front-end
-- SQL Server, Redis and RabbitMQ infrastructure
+Điểm kỹ thuật trọng tâm của dự án là xử lý tình huống **nhiều người cùng chọn một ghế**, đồng thời đảm bảo trạng thái đặt vé được lưu bền vững và có thể phát sự kiện bất đồng bộ.
 
-## Architecture overview
+> Đây là dự án học tập/demo. Luồng thanh toán hiện là mô phỏng; không nên dùng các cấu hình mặc định cho môi trường production.
 
-```text
-React Frontend -> API Gateway -> Identity / Movie / Cinema / Booking Services
-                                     |      |          |
-                                     SQL Server  SQL Server  SQL Server
-                                     |      |          |
-                                     Redis / RabbitMQ
-```
+## Mục lục
 
-## Tech stack
+- [Chức năng](#chức-năng)
+- [Kiến trúc](#kiến-trúc)
+- [Các vấn đề kỹ thuật quan trọng](#các-vấn-đề-kỹ-thuật-quan-trọng)
+- [Công nghệ](#công-nghệ)
+- [Chạy toàn bộ bằng Docker Compose](#chạy-toàn-bộ-bằng-docker-compose)
+- [Luồng demo](#luồng-demo)
+- [API chính](#api-chính)
+- [Chạy kiểm thử](#chạy-kiểm-thử)
+- [Giới hạn hiện tại](#giới-hạn-hiện-tại)
 
-- ASP.NET Core Web API (.NET 8) with Identity and JWT bearer authentication
-- Entity Framework Core + SQL Server
-- Redis distributed lock
-- RabbitMQ with outbox pattern
-- YARP API Gateway
-- React + TypeScript + Vite
-- Docker Compose
+## Chức năng
 
-## Features
+### Khách hàng
 
-- Browse movies with search and filtering
-- View cinemas and screens
-- Create and view showtimes; Cinema Service provisions the matching Booking seat rows
-- Select seats from the live showtime availability endpoint
-- Hold seats with 5-minute expiry
-- Confirm booking with idempotency key support
-- Cancel booking and release seats
-- View a booking receipt and demo customer's booking history
-- Manage movie CRUD and create cinemas, screens, seats and showtimes in the development admin page
-- Race-condition protection using Redis + SQL rowversion
-- RabbitMQ event publishing for booking confirmations
+- Đăng ký, đăng nhập và xác thực bằng JWT.
+- Duyệt, tìm kiếm phim; xem rạp, phòng chiếu, suất chiếu và sơ đồ ghế.
+- Giữ một hoặc nhiều ghế trong thời hạn 5 phút, theo dõi trạng thái ghế.
+- Áp dụng mã khuyến mãi, chọn đồ ăn/thức uống và xem tổng tiền.
+- Xác nhận hoặc hủy đặt vé; xem thông tin vé và lịch sử đặt vé.
+- Xem mã QR vé trong giao diện demo.
 
-## Seat concurrency
+### Quản trị viên
+
+- Quản lý phim, rạp, phòng chiếu, ghế và suất chiếu.
+- Quản lý tài khoản và vai trò; khóa hoặc mở khóa tài khoản.
+- Quản lý dữ liệu khuyến mãi, đồ ăn/thức uống và tra cứu đặt vé.
+- Đánh dấu ghế bảo trì để không cho khách hàng chọn.
+
+## Kiến trúc
 
 ```text
-User A -> Acquire seat lock
-User B -> Acquire seat lock
+React + TypeScript
+        |
+        v
+   YARP API Gateway
+        |
+        +--> Identity Service --> IdentityDb
+        +--> Movie Service ----> MovieDb
+        +--> Cinema Service ---> CinemaDb
+        +--> Booking Service --> BookingDb
+                                      |       |
+                                      v       v
+                                    Redis  RabbitMQ
 
-User A -> Check seat state -> Status = Available -> Held
-User B -> Check seat state -> finds seat already Held -> 409 Conflict
+       Các database chạy trên cùng một SQL Server container
 ```
 
-The flow uses:
+Mỗi service sở hữu database riêng về mặt logic. Khi chạy local, các database dùng chung một SQL Server container để đơn giản hóa việc cài đặt. Cinema Service gọi Booking Service để khởi tạo các bản ghi ghế theo suất chiếu; các API dành cho người dùng đi qua YARP Gateway.
 
-- Redis distributed lock for short-lived critical section
-- SQL Server transaction for consistent update
-- `RowVersion` optimistic concurrency to guard against stale writes
+| Thành phần | Trách nhiệm |
+|---|---|
+| **Identity Service** | Tài khoản, vai trò, đăng nhập, JWT và trạng thái khóa tài khoản |
+| **Movie Service** | Danh mục và thông tin phim |
+| **Cinema Service** | Rạp, phòng chiếu, ghế và suất chiếu |
+| **Booking Service** | Trạng thái ghế theo suất chiếu, giữ ghế, đặt vé, khuyến mãi, thanh toán demo và outbox |
+| **API Gateway** | Định tuyến các API và tập hợp tài liệu Swagger |
+| **React frontend** | Giao diện khách hàng và khu vực quản trị |
 
-## Run locally
+## Các vấn đề kỹ thuật quan trọng
 
-### 1. Restore .NET dependencies
+### 1. Tránh bán trùng ghế khi có nhiều yêu cầu đồng thời
 
-```bash
-dotnet restore CinemaBooking.sln
-```
+Hai khách hàng có thể gửi yêu cầu chọn cùng một ghế gần như đồng thời. Chỉ kiểm tra trạng thái ghế ở frontend là không đủ, vì cả hai request đều có thể nhìn thấy ghế còn trống. Booking Service xử lý ở backend theo nhiều lớp:
 
-### 2. Start infrastructure from Docker Compose
+1. Lấy Redis distributed lock cho từng ghế của suất chiếu; các ghế được sắp xếp trước khi lấy khóa để giảm nguy cơ tranh chấp khi đặt nhiều ghế.
+2. Trong SQL transaction, đọc và kiểm tra trạng thái mới nhất rồi chuyển ghế hợp lệ sang trạng thái `Held`.
+3. Dùng `rowversion` của SQL Server để phát hiện cập nhật cạnh tranh trên cùng bản ghi.
+4. Có unique index trên cặp `(ShowtimeId, SeatId)` để không tạo trùng ghế trong một suất chiếu.
+5. Nếu khóa không lấy được hoặc ghế đã được giữ/đặt/bảo trì, request bị từ chối thay vì trả kết quả đặt ghế thành công giả.
 
-Create a local environment file and set strong, unique values for the SQL Server password, JWT signing key, and internal service key before starting the containers. Optionally provide bootstrap administrator credentials:
+Redis lock là lớp điều phối giữa các instance; SQL Server vẫn là nơi lưu trạng thái chính thức. Kết hợp khóa phân tán, transaction và optimistic concurrency giúp bảo vệ cả lúc nhiều request cạnh tranh lẫn khi dữ liệu thay đổi giữa các bước xử lý.
 
-```bash
-cp .env.example .env
-# Edit .env; configure SQL_SA_PASSWORD, JWT_SECRET, INTERNAL_API_KEY, and optional bootstrap-admin values.
-docker compose up -d
-```
+### 2. Giữ ghế có thời hạn và tự giải phóng
 
-Do not commit `.env`. Compose requires `SQL_SA_PASSWORD` and reads it for both SQL Server and the service connection strings. The default host ports are deliberately separate from the usual local development ports and SQL Server:
+Ghế được giữ trong **5 phút** để khách hàng hoàn tất đặt vé. Booking Service chạy `SeatReleaseBackgroundService`, định kỳ tìm các lượt giữ đã hết hạn, cập nhật booking sang `Expired`, đưa ghế về `Available` và ghi sự kiện giải phóng vào outbox. Worker kiểm tra theo chu kỳ 10 giây; vì vậy việc giải phóng tự động có thể trễ tối đa xấp xỉ một chu kỳ kiểm tra.
 
-| Component | Local / Docker host port |
-|---|---:|
-| API Gateway | 5100 |
-| Movie API | 5101 |
-| Cinema API | 5102 |
-| Booking API | 5103 |
-| Identity API | 5104 |
-| Local Vite frontend | 5173 |
-| Docker frontend | 5174 |
-| SQL Server | 15433 |
-| RabbitMQ management UI | 15673 |
-| RabbitMQ AMQP | 15674 |
-| Redis | 16379 |
+Trạng thái ghế gồm `Available`, `Held`, `Booked` và `Maintenance`. Ghế bảo trì không thể được giữ như ghế trống thông thường.
 
-Compose exposes these ports on the host while containers continue to communicate over the internal ports/service names (`sqlserver:1433`, `redis:6379`, `rabbitmq:5672`, and APIs on `:8080`). If a listed host port is already taken, change its corresponding value in `.env`; do not change the internal container ports.
+### 3. RabbitMQ và Transactional Outbox
 
-The Compose services use SQL authentication and the `sqlserver` container hostname. All APIs use the same JWT signing key, issuer (`CineFlow.Identity`) and audience (`CineFlow.Api`); the signing key must be at least 32 UTF-8 bytes. Cinema-to-Booking seat initialization also requires a shared internal service key of at least 32 UTF-8 bytes. For running APIs directly on Windows, the Identity, Movie, Cinema, and Booking projects share a .NET User Secrets ID. Set the JWT key once and the internal service key for Cinema and Booking once from PowerShell; keep both values out of tracked files:
+Nếu ứng dụng cập nhật database thành công nhưng không gửi được message tới RabbitMQ, các service phía sau sẽ không biết booking đã thay đổi. Dự án dùng **Transactional Outbox** để giảm rủi ro lệch trạng thái:
+
+- Booking và message outbox được ghi trong cùng SQL transaction.
+- `OutboxProcessorBackgroundService` đọc các message chưa xử lý và phát chúng lên RabbitMQ.
+- Message được gửi dưới dạng JSON, queue bền vững và message được đánh dấu persistent.
+- Các loại sự kiện hiện có gồm `BookingConfirmed` và `SeatReleased`.
+
+Outbox giúp message không bị mất chỉ vì RabbitMQ tạm thời không sẵn sàng tại thời điểm ghi booking. Worker có thể gửi lại message chưa được đánh dấu đã xử lý; do đó consumer thực tế nên được thiết kế idempotent để chịu được message trùng.
+
+**Phạm vi hiện tại:** dự án có publisher và outbox worker, nhưng chưa có consumer nghiệp vụ cho các sự kiện này. RabbitMQ hiện minh họa khâu phát sự kiện, không đồng nghĩa đã triển khai đầy đủ hệ thống thông báo hay xử lý downstream.
+
+### 4. Idempotency khi xác nhận đặt vé
+
+API xác nhận booking nhận header tùy chọn `Idempotency-Key`. Nếu client gửi lại cùng yêu cầu do timeout hoặc retry mạng, hệ thống có thể trả lại response đã lưu thay vì tạo thêm kết quả xác nhận. Key được ràng buộc với người dùng và booking; dùng lại key cho một yêu cầu khác sẽ bị trả `409 Conflict`.
+
+### 5. Khóa tài khoản và phân quyền
+
+API được bảo vệ bằng JWT. Người đăng ký công khai nhận vai trò `Customer`; các thao tác quản trị yêu cầu vai trò `Admin`. Quản trị viên có thể khóa/mở khóa tài khoản, và Identity Service từ chối đăng nhập khi tài khoản đang bị khóa. Việc đặt vé lấy user ID từ JWT đã xác thực thay vì tin vào user ID do client tự gửi.
+
+## Công nghệ
+
+- **Backend:** C#, ASP.NET Core Web API trên .NET 8, Entity Framework Core
+- **Database:** SQL Server
+- **Điều phối cạnh tranh:** Redis, StackExchange.Redis
+- **Message broker:** RabbitMQ
+- **Gateway:** YARP
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS
+- **Triển khai local:** Docker Compose
+- **Kiểm thử:** xUnit
+
+## Chạy toàn bộ bằng Docker Compose
+
+### Yêu cầu
+
+- Git
+- Docker Desktop có Docker Compose
+
+### Khởi chạy
+
+Từ thư mục gốc repository, tạo file cấu hình local:
 
 ```powershell
-$secretsId = "CineFlow.LocalDevelopment"
-$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-$jwtBytes = New-Object byte[] 48
-$internalApiBytes = New-Object byte[] 48
-$rng.GetBytes($jwtBytes)
-$rng.GetBytes($internalApiBytes)
-$jwtSecret = [Convert]::ToBase64String($jwtBytes)
-$internalApiKey = [Convert]::ToBase64String($internalApiBytes)
-dotnet user-secrets set "Jwt:SigningKey" $jwtSecret --id $secretsId
-dotnet user-secrets set "InternalService:ApiKey" $internalApiKey --id $secretsId
-$rng.Dispose()
+Copy-Item .env.example .env
 ```
 
-These secrets are stored in your user profile and are loaded automatically in the `Development` environment by all four APIs. For running the APIs directly on Windows with a local SQL Server instance, the appsettings files use Windows Authentication:
+Mở `.env`, thay `SQL_SA_PASSWORD` bằng mật khẩu SQL Server mạnh và điền hai giá trị bí mật riêng biệt:
 
-```text
-Server=.;Database=MovieDb;Trusted_Connection=True;TrustServerCertificate=True;
-Server=.;Database=CinemaDb;Trusted_Connection=True;TrustServerCertificate=True;
-Server=.;Database=BookingDb;Trusted_Connection=True;TrustServerCertificate=True;
-Server=.;Database=IdentityDb;Trusted_Connection=True;TrustServerCertificate=True;
+- `JWT_SECRET`: khóa ký JWT, tối thiểu 32 byte UTF-8.
+- `INTERNAL_API_KEY`: khóa dùng cho lời gọi nội bộ Cinema → Booking, tối thiểu 32 byte UTF-8.
+
+Không commit `.env` hoặc chia sẻ các khóa này. Có thể tùy chỉnh các cổng host trong cùng file nếu máy đã sử dụng cổng mặc định.
+
+Khởi chạy các container:
+
+```powershell
+docker compose up --build -d
+docker compose ps
 ```
 
-Each API creates its own database and seed data on first startup. SQL Server must be running, and the Windows account running the API must be allowed to create databases. Redis and RabbitMQ are still required by the Booking Service.
+Theo dõi log nếu một service chưa sẵn sàng:
 
-### 3. Start backend services
-
-```bash
-dotnet run --project src/Services/Movie/Movie.API
-
-dotnet run --project src/Services/Cinema/Cinema.API
-
-dotnet run --project src/Services/Booking/Booking.API
-
-dotnet run --project src/Services/Identity/Identity.API
-
-dotnet run --project src/Gateway/ApiGateway
+```powershell
+docker compose logs -f api-gateway booking-service
 ```
 
-### 4. Start frontend
+Compose khởi tạo SQL Server, Redis, RabbitMQ, bốn API service, API Gateway và frontend. Mỗi service tạo database riêng và dữ liệu mẫu khi khởi động lần đầu. Có thể dừng các container bằng:
 
-```bash
-cd frontend/cinema-booking-client
-npm install
-npm run dev
+```powershell
+docker compose down
 ```
 
-Then open:
+Để giữ dữ liệu SQL qua lần dừng container, cần bổ sung cấu hình volume bền vững cho SQL Server; Compose hiện tại không khai báo volume cho database.
 
-- Local frontend (`npm run dev`): http://localhost:5173
-- Docker frontend: http://localhost:5174
-- Gateway: http://localhost:5100
-- Combined Swagger UI: http://localhost:5100/swagger
-- Identity API Swagger: http://localhost:5104/swagger
-- Movie API Swagger: http://localhost:5101/swagger
-- Cinema API Swagger: http://localhost:5102/swagger
-- Booking API Swagger: http://localhost:5103/swagger
-- RabbitMQ UI: http://localhost:15673
+### Địa chỉ local mặc định
 
-The frontend uses the Vite development proxy for `/api` requests, so the browser only talks to the frontend origin. By default the proxy targets `http://localhost:5100`. Docker Compose overrides `VITE_API_PROXY_TARGET` to use `http://api-gateway:8080` inside the Compose network.
+| Thành phần | Địa chỉ |
+|---|---|
+| Frontend chạy trong Docker | http://localhost:5174 |
+| API Gateway | http://localhost:5100 |
+| Swagger tổng hợp qua Gateway | http://localhost:5100/swagger |
+| Identity API Swagger | http://localhost:5104/swagger |
+| Movie API Swagger | http://localhost:5101/swagger |
+| Cinema API Swagger | http://localhost:5102/swagger |
+| Booking API Swagger | http://localhost:5103/swagger |
+| RabbitMQ Management UI | http://localhost:15673 |
 
-### Frontend demo flow
+Các cổng có thể đổi trong `.env`. Bên trong Docker network, các service dùng tên container và cổng nội bộ: `sqlserver:1433`, `redis:6379`, `rabbitmq:5672`, và API service ở `:8080`. RabbitMQ local hiện dùng tài khoản mặc định `guest`; không sử dụng cấu hình này cho production.
 
-1. Browse and search movies on `/` or `/movies`.
-2. Open a movie, choose a cinema showtime, and select available seats.
-3. Hold seats for five minutes; the seat map refreshes from Booking Service and shows a countdown.
-4. Use **Thanh toán giả lập** to confirm the booking and view its receipt.
-5. Open `/my-bookings` to see bookings for the signed-in account.
-6. Sign in as an administrator to use `/admin` to manage movies, cinemas, screens, seats, and showtimes or query bookings by Identity user ID.
+### Tài khoản quản trị đầu tiên
 
-New registrations receive the `Customer` role. To provision the first `Admin`, configure both `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` before first startup; alternatively, an existing Admin can assign the `Admin` role through the Identity API. Public registration cannot choose roles.
+Để tạo tài khoản Admin bootstrap, điền `BOOTSTRAP_ADMIN_EMAIL` và `BOOTSTRAP_ADMIN_PASSWORD` trong `.env` trước lần khởi chạy đầu tiên. Tài khoản đăng ký công khai luôn nhận vai trò `Customer`, không thể tự chọn quyền Admin.
 
-## Default database values
+## Luồng demo
 
-Local Windows runs use the integrated SQL Server connection strings above. Docker Compose overrides them with SQL authentication for the SQL Server container.
-## Demo accounts and flow
+1. Mở frontend và đăng ký hoặc đăng nhập.
+2. Chọn phim, rạp, suất chiếu và các ghế đang trống.
+3. Giữ ghế; kiểm tra ghế chuyển sang trạng thái đang giữ và thời hạn 5 phút.
+4. Xác nhận đặt vé bằng luồng thanh toán demo.
+5. Mở mục vé của tôi để xem booking và chi tiết vé.
+6. Thử mở hai phiên trình duyệt và cùng giữ một ghế để quan sát request cạnh tranh bị từ chối.
+7. Đăng nhập bằng Admin để quản lý phim, lịch chiếu, sơ đồ ghế và tài khoản.
 
-Register or sign in at `/account`; the frontend keeps the access token for the current browser session and sends it as a Bearer token.
+Booking Service có API thanh toán minh họa để tạo giao dịch và trạng thái thanh toán. Giao diện/luồng demo không kết nối cổng thanh toán thật; việc tạo QR hoặc đổi trạng thái giao dịch không phải bằng chứng đã thanh toán ngoài đời.
 
-## API overview
+## API chính
 
-Identity service:
+Các đường dẫn sau được phục vụ qua API Gateway. Những endpoint quản trị yêu cầu JWT có vai trò phù hợp; endpoint booking yêu cầu JWT trừ khi nêu rõ khác.
 
-- POST /api/auth/register
-- POST /api/auth/login
-- GET /api/auth/me (authenticated)
-- GET /api/auth/users (Admin only)
-- PUT /api/auth/users/{userId}/roles (Admin only; roles are `Customer` and `Admin`)
+| Nhóm | Một số endpoint |
+|---|---|
+| Tài khoản | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` |
+| Phim | `GET /api/movies`, `GET /api/movies/{id}`; thao tác ghi dành cho Admin |
+| Rạp và suất chiếu | `GET /api/cinemas`, `GET /api/showtimes`, `GET /api/showtimes/{id}`; thao tác ghi dành cho Admin |
+| Ghế và booking | `GET /api/bookings/showtimes/{showtimeId}/seats`, `POST /api/bookings/hold`, `POST /api/bookings/{id}/confirm`, `POST /api/bookings/{id}/cancel` |
+| Booking của tôi | `GET /api/bookings/my-bookings` |
+| Thanh toán demo | `POST /api/payments/create`, `GET /api/payments/{transactionId}/status`, `POST /api/payments/{transactionId}/confirm` |
+| Tình trạng dịch vụ | `GET /health` |
 
-Movie service:
+Cinema Service gửi danh sách ghế của phòng chiếu sang Booking Service khi tạo suất chiếu. Endpoint khởi tạo ghế là endpoint nội bộ được bảo vệ bằng `X-Internal-Api-Key`, không dành cho client frontend gọi trực tiếp. Nếu Booking Service không sẵn sàng, suất chiếu có thể đã được tạo nhưng bước khởi tạo ghế thất bại; cần xử lý/retry bước này.
 
-- GET /api/movies
-- GET /api/movies/{id}
-- POST /api/movies
-- PUT /api/movies/{id}
-- DELETE /api/movies/{id}
+## Chạy kiểm thử
 
-Cinema service:
+Chạy các kiểm thử của solution:
 
-- GET /api/cinemas
-- GET /api/cinemas/{id}
-- POST /api/cinemas
-- PUT /api/cinemas/{id}
-- DELETE /api/cinemas/{id}
-- GET /api/screens/{id}
-- POST /api/screens
-- PUT /api/screens/{id}
-- GET /api/screens/{screenId}/seats
-- POST /api/seats
-- GET /api/showtimes
-- GET /api/showtimes/{id}
-- POST /api/showtimes
-- PUT /api/showtimes/{id}
+```powershell
+dotnet test CinemaBooking.sln
+```
 
-Booking service:
-
-- GET /api/bookings?userId={identityUserId} (Admin only; results capped at 500)
-- GET /api/bookings/my-bookings (authenticated account only)
-- GET /api/bookings/showtimes/{showtimeId}/seats
-- POST /api/bookings/hold
-- GET /api/bookings/{id}
-- GET /api/bookings/my-bookings?userId={userId}
-- POST /api/bookings/{id}/confirm
-- POST /api/bookings/{id}/cancel
-
-Movie and Cinema reads remain public; their create/update/delete operations require the `Admin` role. Booking operations require a valid JWT and are restricted to the booking owner, except Admins may access bookings. Public seat availability remains readable. Showtime-seat initialization is protected by the shared internal service key and is not a user-facing endpoint.
-
-Confirmation accepts an optional `Idempotency-Key` header. Repeating the same key for the same booking returns the original JSON response; reusing it for a different booking returns `409 Conflict`.
-
-Booking state changes and outbox records are committed in the same SQL transaction. The outbox worker publishes durable `BookingConfirmed` and `SeatReleased` messages to RabbitMQ. Seat holds use short-lived Redis locks and SQL Server `rowversion`; the hold itself expires after five minutes.
-
-Creating a showtime through Cinema Service sends that screen's seat IDs to Booking Service. Seat provisioning is idempotent; if Booking Service is unavailable, the showtime remains created and the API returns `503` with its ID so seat provisioning can be retried.
-
-## Important notes
-
-- This is an educational project, not a production-grade distributed system.
-- Each service owns its own SQL database.
-- The project intentionally keeps the design simple to remain easy to understand and demo.
-- Identity stores account and role data in its own `IdentityDb`; user IDs are taken from the validated JWT subject, never from booking request bodies.
-- Access tokens expire after 60 minutes. Refresh tokens and email verification are not implemented; configure HTTPS and secret rotation before production use.
-
-## Future improvements
-
-- Add more robust seat map and admin dashboard
-- Add SignalR live seat updates
-- Add proper payment integration
+Kiểm thử hiện có tập trung vào quy tắc trạng thái ghế, thời hạn giữ, mã booking, validation yêu cầu giữ ghế, idempotency hash và quy tắc hủy booking.
