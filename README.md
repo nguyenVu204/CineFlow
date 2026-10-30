@@ -4,8 +4,6 @@ CineFlow là ứng dụng đặt vé xem phim được xây dựng theo kiến t
 
 Điểm kỹ thuật trọng tâm của dự án là xử lý tình huống **nhiều người cùng chọn một ghế**, đồng thời đảm bảo trạng thái đặt vé được lưu bền vững và có thể phát sự kiện bất đồng bộ.
 
-> Đây là dự án học tập/demo. Luồng thanh toán hiện là mô phỏng; không nên dùng các cấu hình mặc định cho môi trường production.
-
 ## Mục lục
 
 - [Chức năng](#chức-năng)
